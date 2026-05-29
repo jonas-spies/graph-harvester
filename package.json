@@ -1,0 +1,22 @@
+{
+  "name": "backend-demo",
+  "type": "module",
+  "version": "1.0.0",
+  "description": "",
+  "main": "index.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1",
+    "dev": "tsx src/pdf_extraction.ts"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "dependencies": {
+    "mupdf": "^1.27.0",
+    "rbush": "^4.0.1"
+  },
+  "devDependencies": {
+    "@types/node": "^25.9.1",
+    "@types/rbush": "^4.0.0"
+  }
+}
