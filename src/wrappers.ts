@@ -37,29 +37,37 @@ export class Drawing{
             this.maxY = bounds[3]
         }
         else{
-            let x_min = Infinity
-            let y_min = Infinity
-            let x_max = -Infinity
-            let y_max = -Infinity
-            for (var path of paths){
-                let bb = path.bounds
-                var x1 = bb[0]
-                var y1 = bb[1]
-                var x2 = bb[2]
-                var y2 = bb[3]
-                if (x_min > x1)
-                    x_min = x1
-                if (y_min > y1)
-                    y_min = y1
-                if (x_max < x2)
-                    x_max = x2
-                if (y_max < y2)
-                    y_max = y2
+            if (paths.length == 0){
+                this.minX = 0
+                this.maxX = 0
+                this.minY = 0
+                this.maxY = 0
             }
-            this.minX = x_min
-            this.minY = y_min
-            this.maxX = x_max
-            this.maxY = y_max
+            else{
+                let x_min = Infinity
+                let y_min = Infinity
+                let x_max = -Infinity
+                let y_max = -Infinity
+                for (var path of paths){
+                    let bb = path.bounds
+                    var x1 = bb[0]
+                    var y1 = bb[1]
+                    var x2 = bb[2]
+                    var y2 = bb[3]
+                    if (x_min > x1)
+                        x_min = x1
+                    if (y_min > y1)
+                        y_min = y1
+                    if (x_max < x2)
+                        x_max = x2
+                    if (y_max < y2)
+                        y_max = y2
+                }
+                this.minX = x_min
+                this.minY = y_min
+                this.maxX = x_max
+                this.maxY = y_max
+            }
         }
     }
     static merge(d1: Drawing, d2: Drawing): Drawing{
@@ -78,5 +86,8 @@ export class Drawing{
     }
     getBounds(){
         return  [this.minX, this.minY, this.maxX, this.maxY] as mupdf.Rect
+    }
+    area(){
+        return (this.maxX - this.minX) * (this.maxY - this.minY)
     }
 }

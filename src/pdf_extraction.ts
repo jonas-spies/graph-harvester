@@ -3,6 +3,7 @@ import * as fs from "node:fs"
 import * as geometry_utils from "./geometry_utils.js"
 import { Drawing, Path_Metadata } from './wrappers.js'
 
+const drawing_area_threshold = 500 //minimum area a drawing needs to have to be considered
 
 var pathPrinter = {
     moveTo: function (x: number, y: number) { fs.appendFileSync("test_files/log.txt", "moveTo "+ x + " "+ y + "\n") },
@@ -14,41 +15,23 @@ var pathPrinter = {
 function get_paths_from_page(page: mupdf.Page): Path_Metadata[]{
     var list = page.toDisplayList()
     var paths : Path_Metadata[] = []
-
-    //Reconstructing a page from drawn elements for debugging
-    let boundingbox = page.getBounds()
-    const pixmap = new mupdf.Pixmap(mupdf.ColorSpace.DeviceBGR, boundingbox, false)
-    pixmap.clear(255)
-    let drawDevice = new mupdf.DrawDevice(mupdf.Matrix.identity, pixmap)
-    // Object used to extract Path elements
-    var traceDevice = new mupdf.Device({
+    var traceDevice = new mupdf.Device({ // Object used to extract Path elements
     strokeText(text: any){},
     fillImage(image:any){},
     fillPath (path:mupdf.Path , evenOdd: boolean, ctm: mupdf.Matrix, colorSpace: mupdf.ColorSpace, color: mupdf.Color, alpha: number) {
-        //Debugging
-        drawDevice.fillPath(path, evenOdd, ctm, colorSpace, color, alpha)
-        //Actual Code
         var data = new Path_Metadata(path, path.getBounds(null as any, ctm),  ctm, "fill")
         paths.push(data)
     },
     clipPath (path:mupdf.Path , evenOdd: boolean, ctm: mupdf.Matrix) {
-        // Debugging
-        drawDevice.clipPath(path, evenOdd, ctm)
     },
     strokePath (path:mupdf.Path , stroke: mupdf.StrokeState, ctm: mupdf.Matrix, colorSpace: mupdf.ColorSpace, color: mupdf.Color, alpha: number) {
-        // Debugging
-        drawDevice.strokePath(path, stroke, ctm, colorSpace, color, alpha)
-        // Actual Code
         var data = new Path_Metadata(path, path.getBounds(stroke, ctm),  ctm, "stroke", stroke)
         paths.push(data)
     },
     clipStrokePath (path: mupdf.Path, stroke: mupdf.StrokeState, ctm: mupdf.Matrix) {
-        //Debugging
-        drawDevice.clipStrokePath(path, stroke, ctm)
     }
 })
     list.run(traceDevice, mupdf.Matrix.identity) 
-    fs.writeFileSync("test_files/output.png", pixmap.asPNG()) // Saving extracted drawings file as png (debugging)
     return paths;
 }
 
@@ -57,7 +40,7 @@ function group_paths_by_bb(paths: Path_Metadata[]): Drawing[]{
     var len_before = drawings.length
     var break_count = 0
     while(true){
-        let new_drawings = geometry_utils.mergeBoundingBoxes(drawings)
+        let new_drawings = geometry_utils.merge_bounding_boxes(drawings)
         if (new_drawings.length == len_before)
             break_count += 1
         if (break_count >= 3)
@@ -65,11 +48,16 @@ function group_paths_by_bb(paths: Path_Metadata[]): Drawing[]{
         drawings = new_drawings
         len_before = new_drawings.length
     }
-
-    return drawings
+    return drawings.filter((x) => { 
+        var res = (x.area() > drawing_area_threshold)
+        if (!res){
+          fs.appendFileSync("test_files/log.txt", "Filtering "+x.toString() + "?: "+ "\n")  
+        }
+        return res
+    })
 }
 
-function export_drawing(drawing: Drawing, name: string){
+function export_drawing(drawing: Drawing, name: string){     
     /** Exports a drawing as PNG */
     let boundingbox = drawing.getBounds()
     const pixmap = new mupdf.Pixmap(mupdf.ColorSpace.DeviceRGB, boundingbox, false)
@@ -102,12 +90,13 @@ function main(){
         var page = doc.loadPage(i)
         let paths = get_paths_from_page(page)
         let drawings = group_paths_by_bb(paths)
-        fs.appendFileSync("test_files/log.txt", "Ended with following grouping: "+drawings.toString())
-        var png = drawings[0]
-        if (png !== undefined)
-            export_drawing(png, "page"+i)
+        fs.appendFileSync("test_files/log.txt", "\nEnded with following grouping: \n"+drawings.toString()+"\n")
+        for (var j =0; j<drawings.length; j++){
+            var png = drawings[j]
+            if (png !== undefined)
+                export_drawing(png, "page"+i+"_nr"+j)
+        }
     }
-    
 }
 
 

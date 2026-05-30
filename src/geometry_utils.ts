@@ -4,7 +4,7 @@ import RBush from "rbush"
 import * as fs from "node:fs"
 
 
-export function mergeBoundingBoxes(drawings: Drawing[]){
+export function merge_bounding_boxes(drawings: Drawing[]){
     const tree = new RBush<Drawing>()
     var result : Drawing[] = []
     var already_used: Map<Drawing, number> = new Map
@@ -31,6 +31,6 @@ export function mergeBoundingBoxes(drawings: Drawing[]){
             }
         }
     }
-    fs.appendFileSync("test_files/log.txt", "Found "+result.length+" groups: \n"+result.toString() + "\n")
+    //fs.appendFileSync("test_files/log.txt", "Found "+result.length+" groups: \n"+result.toString() + "\n")
     return result
 }
