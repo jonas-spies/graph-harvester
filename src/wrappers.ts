@@ -1,5 +1,22 @@
 import * as mupdf from 'mupdf'
+import { error } from 'node:console'
 import * as fs from "node:fs"
+
+export class Stroke{
+    type: "line" | "curve"
+    width: number
+    points: {x: number, y: number} []
+
+    constructor(type: "line" | "curve", width: number, points: {x: number, y: number}[]){
+        this.type = type
+        this.width = width
+        if (type == "line" &&  points.length == 2)
+            this.points = points
+        else if (type == "curve" && points.length == 4)
+            this.points = points
+        else throw error("points must contain two points for a line or three points for a curve")
+    }
+}
 
 export class Path_Metadata{
     path: mupdf.Path

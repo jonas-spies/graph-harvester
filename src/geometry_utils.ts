@@ -1,6 +1,7 @@
 import { error } from "node:console"
 import { Drawing, Path_Metadata } from "./wrappers.js"
 import RBush from "rbush"
+import * as mupdf from "mupdf"
 import * as fs from "node:fs"
 
 
@@ -33,4 +34,11 @@ export function merge_bounding_boxes(drawings: Drawing[]){
     }
     //fs.appendFileSync("test_files/log.txt", "Found "+result.length+" groups: \n"+result.toString() + "\n")
     return result
+}
+
+export function transform_point(ctm: mupdf.Matrix, x: number, y: number){
+    return {
+        x: ctm[0] * x + ctm[2] * y + ctm[4],
+        y: ctm[1] * x + ctm[3] * y + ctm[5]
+    }
 }

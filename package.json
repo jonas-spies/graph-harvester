@@ -6,7 +6,7 @@
   "main": "index.js",
   "scripts": {
     "test": "echo \"Error: no test specified\" && exit 1",
-    "dev": "tsx src/pdf_extraction.ts"
+    "dev": "tsx src/pipeline.ts"
   },
   "keywords": [],
   "author": "",

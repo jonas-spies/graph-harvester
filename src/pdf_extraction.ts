@@ -5,14 +5,7 @@ import { Drawing, Path_Metadata } from './wrappers.js'
 
 const drawing_area_threshold = 500 //minimum area a drawing needs to have to be considered
 
-var pathPrinter = {
-    moveTo: function (x: number, y: number) { fs.appendFileSync("test_files/log.txt", "moveTo "+ x + " "+ y + "\n") },
-    lineTo: function (x: number, y: number) { fs.appendFileSync("test_files/log.txt", "lineTo "+ x + " " + y + "\n") },
-    curveTo: function (x1:number, y1:number, x2:number, y2:number, x3:number, y3:number) { fs.appendFileSync("test_files/log.txt", "curveTo" + x1 +" "+ y1 +" "+ x2 +" "+ y2 + " "+  x3 + " "+  y3 + "\n") },
-    closePath: function () { fs.appendFileSync("test_files/log.txt", "closePath\n") }
-}   
-
-function get_paths_from_page(page: mupdf.Page): Path_Metadata[]{
+export function get_paths_from_page(page: mupdf.Page): Path_Metadata[]{
     var list = page.toDisplayList()
     var paths : Path_Metadata[] = []
     var traceDevice = new mupdf.Device({ // Object used to extract Path elements
@@ -35,7 +28,7 @@ function get_paths_from_page(page: mupdf.Page): Path_Metadata[]{
     return paths;
 }
 
-function group_paths_by_bb(paths: Path_Metadata[]): Drawing[]{
+export function group_paths_by_bb(paths: Path_Metadata[]): Drawing[]{
     var drawings: Drawing[] = paths.map(path => new Drawing([path], path.bounds))
     var len_before = drawings.length
     var break_count = 0
@@ -51,14 +44,14 @@ function group_paths_by_bb(paths: Path_Metadata[]): Drawing[]{
     return drawings.filter((x) => { 
         var res = (x.area() > drawing_area_threshold)
         if (!res){
-          fs.appendFileSync("test_files/log.txt", "Filtering "+x.toString() + "?: "+ "\n")  
+          // fs.appendFileSync("test_files/log.txt", "Filtering "+x.toString() + "?: "+ "\n")
         }
         return res
     })
 }
 
-function export_drawing(drawing: Drawing, name: string){     
-    /** Exports a drawing as PNG */
+export function export_drawing(drawing: Drawing, name: string){     
+    /** Exports a drawing as PNG for debugging purposes*/
     let boundingbox = drawing.getBounds()
     const pixmap = new mupdf.Pixmap(mupdf.ColorSpace.DeviceRGB, boundingbox, false)
     pixmap.clear(255)
@@ -82,23 +75,4 @@ function export_drawing(drawing: Drawing, name: string){
     }
     fs.writeFileSync("test_files/"+name+".png", pixmap.asPNG())
 }
-
-function main(){
-    fs.writeFileSync("test_files/log.txt", "Logs of the most recent iteration\n")
-    let doc = mupdf.PDFDocument.openDocument(fs.readFileSync("test_files/test1.pdf"))
-    for  (var i = 0; i< doc.countPages(); i++){
-        var page = doc.loadPage(i)
-        let paths = get_paths_from_page(page)
-        let drawings = group_paths_by_bb(paths)
-        fs.appendFileSync("test_files/log.txt", "\nEnded with following grouping: \n"+drawings.toString()+"\n")
-        for (var j =0; j<drawings.length; j++){
-            var png = drawings[j]
-            if (png !== undefined)
-                export_drawing(png, "page"+i+"_nr"+j)
-        }
-    }
-}
-
-
-main();
 
