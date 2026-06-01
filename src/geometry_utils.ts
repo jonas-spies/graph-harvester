@@ -1,8 +1,6 @@
-import { error } from "node:console"
-import { Drawing, Path_Metadata } from "./wrappers.js"
+import { Drawing, Path_Metadata, Stroke } from "./wrappers.js"
 import RBush from "rbush"
 import * as mupdf from "mupdf"
-import * as fs from "node:fs"
 
 
 export function merge_bounding_boxes(drawings: Drawing[]){
@@ -25,7 +23,7 @@ export function merge_bounding_boxes(drawings: Drawing[]){
             for (var n of neighbors){
                 var cluster = result[index]
                 if(cluster === undefined)
-                    throw error("Error: cluster with index"+index+"is out of bounds")
+                    throw new Error("Error: cluster with index"+index+"is out of bounds")
                 let merged = Drawing.merge(cluster, n)
                 result[index] = merged
                 already_used.set(n, index)
@@ -36,9 +34,61 @@ export function merge_bounding_boxes(drawings: Drawing[]){
     return result
 }
 
+
 export function transform_point(ctm: mupdf.Matrix, x: number, y: number){
     return {
         x: ctm[0] * x + ctm[2] * y + ctm[4],
         y: ctm[1] * x + ctm[3] * y + ctm[5]
     }
+}
+
+
+export function break_path_into_strokes(stroke_path: Path_Metadata, logs?: string): {strokes: Stroke[], is_closed: boolean} {
+           var stroke_segments: Stroke[] = []
+        var is_closed = false
+        var start: {x: number, y: number} | null
+        var loop_start: {x: number, y: number} | null
+        var strokeStyle = stroke_path.stroke
+        var width: number
+        var ctm = stroke_path.ctm
+        logs += "\nContinuing with new stroke Path...\n"
+        if (strokeStyle === undefined)
+            throw new Error("encountered stroke Path with no strokeStyle")
+        width = strokeStyle.getLineWidth()
+            
+        var path_walker = {
+            moveTo: function (x: number, y: number) {
+                var point = transform_point(ctm, x,y)
+                logs += "moving to "+ point.x + " "+ point.y + "\n"
+                start = point
+                loop_start = point
+            },
+            lineTo: function (x: number, y: number) {
+                if (!start) 
+                    throw new Error("lineTo without moveTo")
+                var end = transform_point(ctm, x,y)
+                logs += "line from "+ start.x+ " "+ start.y + " to "+ end.x + " " + end.y + "\n"
+                stroke_segments.push(new Stroke("line", width, [start, end]))
+                start = end
+            },
+            curveTo: function (x1:number, y1:number, x2:number, y2:number, x3:number, y3:number) {
+                if (!start) 
+                    throw new Error("curveTo without moveTo")
+                var p1 = transform_point(ctm, x1, y1)
+                var p2 = transform_point(ctm, x2, y2)
+                var p3 = transform_point(ctm, x3, y3)
+                logs += "curve from " +  start.x + " "+ start.y + " through " + p1.x +" "+ p1.y+" and "+ p2.x +" "+ p2.y + " to "+  p3.x + " "+  p3.y + "\n"
+                stroke_segments.push(new Stroke("curve", width, [start, p1, p2, p3]))
+                start = p3
+            },
+            closePath: function () {
+                is_closed = true
+                if (!loop_start || !start)
+                    throw new Error ("closePath without moveTo")
+                stroke_segments.push(new Stroke("line", width, [start, loop_start]))
+                logs += "closing Path\n"
+            }
+        } 
+        stroke_path.path.walk(path_walker)
+        return {strokes: stroke_segments, is_closed: is_closed}
 }

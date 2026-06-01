@@ -4,6 +4,8 @@ import * as mupdf from "mupdf"
 import * as fs from "node:fs"
 
 
+const VERTEX_HEIGHT_WIDTH_RATIO_THRESHOLD = 0.5
+
 
 export function detect_graph_from_drawing(drawing : Drawing){
     // Finding Candidates
@@ -12,53 +14,25 @@ export function detect_graph_from_drawing(drawing : Drawing){
     var edge_candidates: Stroke[] = []
     var buffer: string = "Initializing Graph Detection for new Drawing...\n"
     for (var stroke_path of stroke_paths){
-        var stroke_segments: Stroke[] = []
-        var is_closed = false
-        var start: {x: number, y: number} | null
-        var strokeStyle = stroke_path.stroke
-        var width: number
-        var ctm = stroke_path.ctm
-        buffer += "\nContinuing with new stroke Path...\n"
-        if (strokeStyle === undefined)
-            throw new Error("encountered stroke Path with no strokeStyle")
-        width = strokeStyle.getLineWidth()
-            
-        var path_walker = {
-            moveTo: function (x: number, y: number) {
-                var point = utils.transform_point(ctm, x,y)
-                buffer += "moving to "+ point.x + " "+ point.y + "\n"
-                start = point
-            },
-            lineTo: function (x: number, y: number) {
-                if (!start) 
-                    throw new Error("lineTo without moveTo")
-                var end = utils.transform_point(ctm, x,y)
-                buffer += "line from "+ start.x+ " "+ start.y + " to "+ end.x + " " + end.y + "\n"
-                stroke_segments.push(new Stroke("line", width, [start, end]))
-                start = end
-            },
-            curveTo: function (x1:number, y1:number, x2:number, y2:number, x3:number, y3:number) {
-                if (!start) 
-                    throw new Error("curveTo without moveTo")
-                var p1 = utils.transform_point(ctm, x1, y1)
-                var p2 = utils.transform_point(ctm, x2, y2)
-                var p3 = utils.transform_point(ctm, x3, y3)
-                buffer += "curve from " +  start.x + " "+ start.y + " through " + p1.x +" "+ p1.y+" and "+ p2.x +" "+ p2.y + " to "+  p3.x + " "+  p3.y + "\n"
-                stroke_segments.push(new Stroke("curve", width, [start, p1, p2, p3]))
-                start = p3
-            },
-            closePath: function () {
-                is_closed = true
-                buffer += "closing Path\n"
-            }
-        }   
-        
-        stroke_path.path.walk(path_walker)
-        if (is_closed)
+        let res = utils.break_path_into_strokes(stroke_path, buffer)
+        if (res.is_closed)
             vertex_candidates.push(stroke_path)
         else
-            edge_candidates.push(... stroke_segments)
+            edge_candidates.push(... res.strokes)
     }
+    const n = vertex_candidates.length
+    //Filter vertices by height / width ratio
+    for (var i = 0; i < n; i++){
+        let vertex = vertex_candidates.shift()
+        if (!vertex)
+            throw new Error("illegal array length")
+        const ratio = vertex.height_width_ratio()
+        if ((ratio > VERTEX_HEIGHT_WIDTH_RATIO_THRESHOLD && ratio < (1/VERTEX_HEIGHT_WIDTH_RATIO_THRESHOLD)))
+            vertex_candidates.push(vertex)            
+        else if (vertex.type =="stroke")
+            edge_candidates.push(... utils.break_path_into_strokes(vertex).strokes)   
+    }
+
     buffer += "Found " + vertex_candidates.length +" vertex candidates and " + edge_candidates.length + " edge candidates\n \n"
     fs.appendFileSync("test_files/log.txt", buffer)
     // TODO handle vertex_candidates

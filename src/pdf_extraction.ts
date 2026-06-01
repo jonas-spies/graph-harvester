@@ -3,7 +3,9 @@ import * as fs from "node:fs"
 import * as geometry_utils from "./geometry_utils.js"
 import { Drawing, Path_Metadata } from './wrappers.js'
 
-const drawing_area_threshold = 500 //minimum area a drawing needs to have to be considered
+
+const DRAWING_AREA_THRESHOLD = 500 //minimum area a drawing needs to have to be considered
+
 
 export function get_paths_from_page(page: mupdf.Page): Path_Metadata[]{
     var list = page.toDisplayList()
@@ -28,6 +30,7 @@ export function get_paths_from_page(page: mupdf.Page): Path_Metadata[]{
     return paths;
 }
 
+
 export function group_paths_by_bb(paths: Path_Metadata[]): Drawing[]{
     var drawings: Drawing[] = paths.map(path => new Drawing([path], path.bounds))
     var len_before = drawings.length
@@ -42,13 +45,14 @@ export function group_paths_by_bb(paths: Path_Metadata[]): Drawing[]{
         len_before = new_drawings.length
     }
     return drawings.filter((x) => { 
-        var res = (x.area() > drawing_area_threshold)
+        var res = (x.area() > DRAWING_AREA_THRESHOLD)
         if (!res){
           // fs.appendFileSync("test_files/log.txt", "Filtering "+x.toString() + "?: "+ "\n")
         }
         return res
     })
 }
+
 
 export function export_drawing(drawing: Drawing, name: string){     
     /** Exports a drawing as PNG for debugging purposes*/

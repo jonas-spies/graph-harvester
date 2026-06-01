@@ -1,11 +1,12 @@
 import * as mupdf from 'mupdf'
 import { error } from 'node:console'
-import * as fs from "node:fs"
+
 
 export class Stroke{
     type: "line" | "curve"
     width: number
     points: {x: number, y: number} []
+
 
     constructor(type: "line" | "curve", width: number, points: {x: number, y: number}[]){
         this.type = type
@@ -18,12 +19,14 @@ export class Stroke{
     }
 }
 
+
 export class Path_Metadata{
     path: mupdf.Path
     bounds: mupdf.Rect
     ctm: mupdf.Matrix
     type: "fill" | "stroke"
     stroke?: mupdf.StrokeState
+
 
     constructor(path: mupdf.Path, bounds: mupdf.Rect, ctm: mupdf.Matrix, type: "fill" | "stroke", stroke?: mupdf.StrokeState) {
         this.path = path
@@ -33,17 +36,35 @@ export class Path_Metadata{
         if (stroke)
             this.stroke = stroke
     }
+
+
     toString(){
         return this.type
     }
 
+
+    height_width_ratio(){
+        const width = this.bounds[2] - this.bounds[0]
+        const height = this.bounds[3] - this.bounds[1]
+        if (width != 0)
+            return height / width
+        else return 0
+    }
+
+
+    area(){
+        return (this.bounds[2] - this.bounds[0]) * (this.bounds[3] - this.bounds[1])
+    }
 }
+
+
 export class Drawing{
     paths: Path_Metadata[]
     minX: number
     minY: number
     maxX: number
     maxY: number
+
 
     constructor(paths: Path_Metadata[], bounds?: mupdf.Rect){
         this.paths = paths
@@ -87,6 +108,8 @@ export class Drawing{
             }
         }
     }
+
+
     static merge(d1: Drawing, d2: Drawing): Drawing{
         //fs.appendFileSync("test_files/log.txt", "merging two Drawings, D1: "+d1.paths.toString() + "\nD2: "+ d2.paths.toString()+"\n")
         const mergedPaths = [...d1.paths, ...d2.paths];
@@ -98,12 +121,18 @@ export class Drawing{
 
         return new Drawing(mergedPaths, [minX, minY, maxX, maxY]);
     }
+
+
     toString(){
         return "Drawing with "+this.paths.length +" paths: "+ this.paths.toString() +"\n" + "Bounding Box: [" +this.minX + ","+this.minY+" | " + this.maxX + " " + this.maxY +"]\n"
     }
+
+
     getBounds(){
         return  [this.minX, this.minY, this.maxX, this.maxY] as mupdf.Rect
     }
+
+
     area(){
         return (this.maxX - this.minX) * (this.maxY - this.minY)
     }
