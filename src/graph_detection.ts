@@ -3,8 +3,10 @@ import * as utils from "./geometry_utils.js"
 import * as mupdf from "mupdf"
 import * as fs from "node:fs"
 
-
+// Only keep vertices with a ratio between that and its inverse
 const VERTEX_HEIGHT_WIDTH_RATIO_THRESHOLD = 0.5
+// Only consider edges connected to a vertex, if the edge overlaps the vertices bounding box, scaled by this
+const VERTEX_EDGE_DISTANCE_THRESHOLD = 1.3
 
 
 export function detect_graph_from_drawing(drawing : Drawing){
@@ -34,6 +36,14 @@ export function detect_graph_from_drawing(drawing : Drawing){
     }
 
     buffer += "Found " + vertex_candidates.length +" vertex candidates and " + edge_candidates.length + " edge candidates\n \n"
+    let graph = utils.vertices_within_distance_of_edge(VERTEX_EDGE_DISTANCE_THRESHOLD, edge_candidates, vertex_candidates)
+    buffer += "GRAPH: \n"
+    graph.forEach( (edges: Stroke[], vertex: Path_Metadata) => {
+        buffer += ("Vertex: " + vertex.toString() +" with following edges\n")
+        for (const edge of edges){
+            buffer += ("Edge: " + edge.toString() +"\n")
+        }
+    } )
     fs.appendFileSync("test_files/log.txt", buffer)
     // TODO handle vertex_candidates
     // TODO handle edge_candidates

@@ -15,6 +15,7 @@ function execute(){
         for (var j =0; j<drawings.length; j++){
             var drawing = drawings[j]
             if (drawing !== undefined){
+                fs.appendFileSync("test_files/log.txt", "\nPage " +i + " Drawing Nr. " + j + "\n")
                 pdf_extraction.export_drawing(drawing, "page"+i+"_nr"+j) // debugging purposes
                 detect_graph_from_drawing(drawing)
             }

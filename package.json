@@ -12,6 +12,7 @@
   "author": "",
   "license": "ISC",
   "dependencies": {
+    "kdbush": "^4.1.0",
     "mupdf": "^1.27.0",
     "rbush": "^4.0.1"
   },

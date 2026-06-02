@@ -1,21 +1,34 @@
 import * as mupdf from 'mupdf'
-import { error } from 'node:console'
 
 
 export class Stroke{
     type: "line" | "curve"
     width: number
-    points: {x: number, y: number} []
+    start: {x: number, y: number}
+    end: {x: number, y:number}
+    control_pts?: {x: number, y: number} []
 
 
     constructor(type: "line" | "curve", width: number, points: {x: number, y: number}[]){
         this.type = type
         this.width = width
-        if (type == "line" &&  points.length == 2)
-            this.points = points
-        else if (type == "curve" && points.length == 4)
-            this.points = points
-        else throw error("points must contain two points for a line or three points for a curve")
+        if (type == "line" &&  points.length == 2){
+            this.start = points[0]!
+            this.end = points[1]!
+        }
+    
+
+        else if (type == "curve" && points.length == 4){
+            this.start = points[0]!
+            this.end = points[3]!
+            this.control_pts = [points[1]!, points[2]!]
+        }
+        else throw new Error("points must contain two points for a line or four points for a curve")
+    }
+
+
+    toString(){
+        return "Type: " + this.type + " Start: " + this.start.x + " "+ this.start.y + " End: " + this.end.x + " " + this.end.y
     }
 }
 
@@ -26,7 +39,7 @@ export class Path_Metadata{
     ctm: mupdf.Matrix
     type: "fill" | "stroke"
     stroke?: mupdf.StrokeState
-
+    
 
     constructor(path: mupdf.Path, bounds: mupdf.Rect, ctm: mupdf.Matrix, type: "fill" | "stroke", stroke?: mupdf.StrokeState) {
         this.path = path
@@ -39,7 +52,7 @@ export class Path_Metadata{
 
 
     toString(){
-        return this.type
+        return "Type: "+ this.type + " Center: " + this.center().x + " "+ this.center().y + " Area: " + this.area()
     }
 
 
@@ -54,6 +67,11 @@ export class Path_Metadata{
 
     area(){
         return (this.bounds[2] - this.bounds[0]) * (this.bounds[3] - this.bounds[1])
+    }  
+
+
+    center(){
+        return {x: (this.bounds[2] + this.bounds[0]) / 2, y: (this.bounds[3] + this.bounds[1]) / 2}
     }
 }
 

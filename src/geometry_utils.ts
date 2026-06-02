@@ -1,5 +1,6 @@
 import { Drawing, Path_Metadata, Stroke } from "./wrappers.js"
 import RBush from "rbush"
+import KDBush from 'kdbush'
 import * as mupdf from "mupdf"
 
 
@@ -91,4 +92,42 @@ export function break_path_into_strokes(stroke_path: Path_Metadata, logs?: strin
         } 
         stroke_path.path.walk(path_walker)
         return {strokes: stroke_segments, is_closed: is_closed}
+}
+
+
+export function scale_bb_by_factor(bb: mupdf.Rect, factor: number): mupdf.Rect{
+    var width = (bb[2] - bb[0]) * factor
+    var height = (bb[3] - bb[1]) * factor
+    var center_x = (bb[2] + bb[0]) / 2
+    var center_y = (bb[3] + bb[1]) / 2
+    var minX = center_x - (width / 2)
+    var maxX = center_x + (width / 2)
+    var minY = center_y - (height / 2)
+    var maxY = center_y + (height / 2)
+    return [minX, minY, maxX, maxY] as mupdf.Rect
+}
+
+
+export function vertices_within_distance_of_edge(distance: number, edges: Stroke[], vertices: Path_Metadata[]): Map<Path_Metadata, Stroke[]>{
+    const map = new Map<Path_Metadata, Stroke[]>
+    const n = edges.length
+    const points = [... edges.map(x => x.start), ... edges.map(x => x.end)] // First n indices are of type start, indices from n, ..., 2n-1 are of type end
+    const tree = new KDBush(2*n)
+    for (const {x,y} of points)
+        tree.add(x,y)
+    tree.finish()
+    for (const v of vertices){
+        let bb = scale_bb_by_factor(v.bounds, distance)
+
+        // Make a query for all points within distance of bounding box of v
+        const foundIds = tree.range(bb[0], bb[1], bb[2], bb[3])
+        const foundEdges = foundIds.map(x => {
+            if (x >= n) // Type end
+                return edges[x-n]!
+            else
+                return edges[x]!
+        })
+        map.set(v, foundEdges)
+    }
+    return map
 }
