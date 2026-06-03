@@ -1,7 +1,6 @@
 import {Drawing, Path_Metadata, Stroke} from "./wrappers.js"
 import * as utils from "./geometry_utils.js"
 import * as mupdf from "mupdf"
-import * as fs from "node:fs"
 
 // Only keep vertices with a ratio between that and its inverse
 const VERTEX_HEIGHT_WIDTH_RATIO_THRESHOLD = 0.5
@@ -9,14 +8,14 @@ const VERTEX_HEIGHT_WIDTH_RATIO_THRESHOLD = 0.5
 const VERTEX_EDGE_DISTANCE_THRESHOLD = 1.3
 
 
-export function detect_graph_from_drawing(drawing : Drawing){
+export function detect_graph_from_drawing(drawing : Drawing, logs? : string[]){
     // Finding Candidates
     let vertex_candidates: Path_Metadata[] = drawing.paths.filter(x => x.type == "fill") //Fill objects can only be vertices and should not be taken apart
     let stroke_paths: Path_Metadata[] = drawing.paths.filter(x => x.type == "stroke") // stroke objects can represent a vertex or one or more edges
     var edge_candidates: Stroke[] = []
-    var buffer: string = "Initializing Graph Detection for new Drawing...\n"
+    logs?.push("Initializing Graph Detection for new Drawing...\n")
     for (var stroke_path of stroke_paths){
-        let res = utils.break_path_into_strokes(stroke_path, buffer)
+        let res = utils.break_path_into_strokes(stroke_path, logs)
         if (res.is_closed)
             vertex_candidates.push(stroke_path)
         else
@@ -35,16 +34,15 @@ export function detect_graph_from_drawing(drawing : Drawing){
             edge_candidates.push(... utils.break_path_into_strokes(vertex).strokes)   
     }
 
-    buffer += "Found " + vertex_candidates.length +" vertex candidates and " + edge_candidates.length + " edge candidates\n \n"
+    logs?.push("Found " + vertex_candidates.length +" vertex candidates and " + edge_candidates.length + " edge candidates\n \n")
     let graph = utils.vertices_within_distance_of_edge(VERTEX_EDGE_DISTANCE_THRESHOLD, edge_candidates, vertex_candidates)
-    buffer += "GRAPH: \n"
+    logs?.push("GRAPH: \n")
     graph.forEach( (edges: Stroke[], vertex: Path_Metadata) => {
-        buffer += ("Vertex: " + vertex.toString() +" with following edges\n")
+        logs?.push("Vertex: " + vertex.toString() +" with following edges\n")
         for (const edge of edges){
-            buffer += ("Edge: " + edge.toString() +"\n")
+            logs?.push("Edge: " + edge.toString() +"\n")
         }
     } )
-    fs.appendFileSync("test_files/log.txt", buffer)
     // TODO handle vertex_candidates
     // TODO handle edge_candidates
     // TODO return detected graph or null

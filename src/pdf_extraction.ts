@@ -46,9 +46,6 @@ export function group_paths_by_bb(paths: Path_Metadata[]): Drawing[]{
     }
     return drawings.filter((x) => { 
         var res = (x.area() > DRAWING_AREA_THRESHOLD)
-        if (!res){
-          // fs.appendFileSync("test_files/log.txt", "Filtering "+x.toString() + "?: "+ "\n")
-        }
         return res
     })
 }
