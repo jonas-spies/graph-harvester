@@ -2,3 +2,4 @@ node_modules/
 *.log
 *.png
 test_files/log.txt
+test_files/GD12

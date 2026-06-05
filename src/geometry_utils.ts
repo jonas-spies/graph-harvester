@@ -49,12 +49,10 @@ export function break_path_into_strokes(stroke_path: Path_Metadata, logs?: strin
         var start: {x: number, y: number} | null
         var loop_start: {x: number, y: number} | null
         var strokeStyle = stroke_path.stroke
-        var width: number
         var ctm = stroke_path.ctm
         logs?.push("\nContinuing with new stroke Path...\n")
         if (strokeStyle === undefined)
             throw new Error("encountered stroke Path with no strokeStyle")
-        width = strokeStyle.getLineWidth()
             
         var path_walker = {
             moveTo: function (x: number, y: number) {
@@ -68,7 +66,7 @@ export function break_path_into_strokes(stroke_path: Path_Metadata, logs?: strin
                     throw new Error("lineTo without moveTo")
                 var end = transform_point(ctm, x,y)
                 logs?.push("line from "+ start.x+ " "+ start.y + " to "+ end.x + " " + end.y + "\n")
-                stroke_segments.push(new Stroke("line", width, [start, end]))
+                stroke_segments.push(new Stroke("line", strokeStyle!, [start, end]))
                 start = end
             },
             curveTo: function (x1:number, y1:number, x2:number, y2:number, x3:number, y3:number) {
@@ -78,14 +76,14 @@ export function break_path_into_strokes(stroke_path: Path_Metadata, logs?: strin
                 var p2 = transform_point(ctm, x2, y2)
                 var p3 = transform_point(ctm, x3, y3)
                 logs?.push("curve from " +  start.x + " "+ start.y + " through " + p1.x +" "+ p1.y+" and "+ p2.x +" "+ p2.y + " to "+  p3.x + " "+  p3.y + "\n")
-                stroke_segments.push(new Stroke("curve", width, [start, p1, p2, p3]))
+                stroke_segments.push(new Stroke("curve", strokeStyle!, [start, p1, p2, p3]))
                 start = p3
             },
             closePath: function () {
                 is_closed = true
                 if (!loop_start || !start)
                     throw new Error ("closePath without moveTo")
-                stroke_segments.push(new Stroke("line", width, [start, loop_start]))
+                stroke_segments.push(new Stroke("line", strokeStyle!, [start, loop_start]))
                 logs?.push("closing Path\n")
             }
         } 
@@ -108,7 +106,7 @@ export function scale_bb_by_factor(bb: mupdf.Rect, factor: number): mupdf.Rect{
 
 
 export function vertices_within_distance_of_edge(distance: number, edges: Stroke[], vertices: Path_Metadata[]): Map<Path_Metadata, Stroke[]>{
-    const map = new Map<Path_Metadata, Stroke[]>
+    const map = new Map<Path_Metadata, Stroke[]>()
     const n = edges.length
     const points = [... edges.map(x => x.start), ... edges.map(x => x.end)] // First n indices are of type start, indices from n, ..., 2n-1 are of type end
     const tree = new KDBush(2*n)
@@ -121,10 +119,17 @@ export function vertices_within_distance_of_edge(distance: number, edges: Stroke
         // Make a query for all points within distance of bounding box of v
         const foundIds = tree.range(bb[0], bb[1], bb[2], bb[3])
         const foundEdges = foundIds.map(x => {
-            if (x >= n) // Type end
-                return edges[x-n]!
-            else
-                return edges[x]!
+            if (x >= n){ // Type end
+                let edge = edges[x-n]!
+                edge.end_incident = v
+                return edge
+            }         
+            else {  //Type Start
+                let edge = edges[x]!
+                edge.start_incident = v
+                return edge
+                
+            }
         })
         map.set(v, foundEdges)
     }

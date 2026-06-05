@@ -1,4 +1,4 @@
-import {Drawing, Path_Metadata, Stroke} from "./wrappers.js"
+import {Drawing, Path_Metadata, Stroke, Graph} from "./wrappers.js"
 import * as utils from "./geometry_utils.js"
 import * as mupdf from "mupdf"
 
@@ -8,21 +8,8 @@ const VERTEX_HEIGHT_WIDTH_RATIO_THRESHOLD = 0.5
 const VERTEX_EDGE_DISTANCE_THRESHOLD = 1.3
 
 
-export function detect_graph_from_drawing(drawing : Drawing, logs? : string[]){
-    // Finding Candidates
-    let vertex_candidates: Path_Metadata[] = drawing.paths.filter(x => x.type == "fill") //Fill objects can only be vertices and should not be taken apart
-    let stroke_paths: Path_Metadata[] = drawing.paths.filter(x => x.type == "stroke") // stroke objects can represent a vertex or one or more edges
-    var edge_candidates: Stroke[] = []
-    logs?.push("Initializing Graph Detection for new Drawing...\n")
-    for (var stroke_path of stroke_paths){
-        let res = utils.break_path_into_strokes(stroke_path, logs)
-        if (res.is_closed)
-            vertex_candidates.push(stroke_path)
-        else
-            edge_candidates.push(... res.strokes)
-    }
+function filter_vertices_by_height_width_ratio(vertex_candidates: Path_Metadata[], edge_candidates: Stroke[]){
     const n = vertex_candidates.length
-    //Filter vertices by height / width ratio
     for (var i = 0; i < n; i++){
         let vertex = vertex_candidates.shift()
         if (!vertex)
@@ -33,16 +20,110 @@ export function detect_graph_from_drawing(drawing : Drawing, logs? : string[]){
         else if (vertex.type =="stroke")
             edge_candidates.push(... utils.break_path_into_strokes(vertex).strokes)   
     }
+}
 
-    logs?.push("Found " + vertex_candidates.length +" vertex candidates and " + edge_candidates.length + " edge candidates\n \n")
-    let graph = utils.vertices_within_distance_of_edge(VERTEX_EDGE_DISTANCE_THRESHOLD, edge_candidates, vertex_candidates)
-    logs?.push("GRAPH: \n")
-    graph.forEach( (edges: Stroke[], vertex: Path_Metadata) => {
+
+function filter_vertices_if_incident(vertex_candidates: Path_Metadata[], edge_candidates: Stroke[]){ //TODO: if two vertices are incident, one is likely not a vertex
+
+}
+
+
+function filter_vertices_by_mean_size(vertex_candidates: Path_Metadata[], edge_candidates: Stroke[]){//TODO: put vertices into clusters by mean size, then only take largest cluster
+
+}
+
+
+    // Logs for debugging
+    /*logs?.push("GRAPH: \n")
+    map.forEach( (edges: Stroke[], vertex: Path_Metadata) => {
         logs?.push("Vertex: " + vertex.toString() +" with following edges\n")
         for (const edge of edges){
             logs?.push("Edge: " + edge.toString() +"\n")
         }
-    } )
+    } )*/
+function build_graphs_from_map(map: Map<Path_Metadata, Stroke[]>, logs?: string[]): Graph[]{
+    const visited : Set<Path_Metadata | Stroke> = new Set<Path_Metadata | Stroke>()
+    const graphs : Graph[] = []
+    for (const vertex of map.keys()){ // for every vertex, do DFS
+        if (visited.has(vertex)) // already part of some graph, so skip
+            continue
+        const graph = new Graph()
+        const vertices: Path_Metadata[] = [vertex]
+        while (vertices.length > 0){ // actual DFS
+            let next = vertices.pop()!
+            if(!visited.has(next)){ //Adds element 0 (imagine an edge called 1 with two endpoints 0,2 in a chain 0 - 1 - 2)
+                visited.add(next)
+                graph.putVertex(next)
+            }
+            let edge = map.get(next)!.find((edge) => !visited.has(edge)) //An arbitrary edge that has not yet been visited
+            if (edge){
+                var previous: Path_Metadata | Stroke | undefined = next // 0
+                var current: Path_Metadata | Stroke | undefined = edge // 1
+                do { // Traverse Stroke, until a dead end or a Vertex is found
+                    if (!visited.has(current)) // Adds 1 in first iteration, 2 in all other
+                        visited.add(current)
+                    previous = current.traverse(previous) // previous 0 => 2
+                    var aux: Path_Metadata | Stroke | undefined = previous // aux => 2
+                    previous = current // previous 2 => 1
+                    current = aux // current 1 => 2
+                } while(current && (current instanceof Stroke))
+                if (current && current !== next){
+                    if (!visited.has(current))
+                        visited.add(current)
+                    graph.putVertex(current)
+                    graph.putEdge({v1: next, v2: current})
+                    vertices.push(next)
+                    vertices.push(current)
+                }
+                else{ // Edge candidate wasnt an edge after all
+                    vertices.push(next)
+                }
+            }
+            else { // Vertex has no unseen edges
+                continue
+            }
+        }
+        if (graph.hasEdges() && graph.hasVertices())
+            graphs.push(graph)
+    }
+    return graphs
+}
+
+
+function edges_incident_to_edges(edges: Stroke[]){ //TODO: for each edge, use KDBush to find all other edges that are connected in start or endpoint, then filter based on StrokeStyle for the most likely candidate
+
+}
+
+
+function detect_vertices_on_edge(edges: Stroke[]){ // TODO for each vertex, check if it lies between an edges' two endpoints and split those edges in two. 
+
+}
+
+
+export function detect_graph_from_drawing(drawing : Drawing, logs? : string[]){
+    // Finding Candidates
+    let vertex_candidates: Path_Metadata[] = drawing.paths.filter(x => x.type == "fill") //Fill objects can only be vertices and should not be taken apart
+    let stroke_paths: Path_Metadata[] = drawing.paths.filter(x => x.type == "stroke") // stroke objects can represent a vertex or one or more edges
+    var edge_candidates: Stroke[] = []
+    logs?.push("Initializing Graph Detection for new Drawing...\n")
+    for (var stroke_path of stroke_paths){
+        let res = utils.break_path_into_strokes(stroke_path)
+        if (res.is_closed)
+            vertex_candidates.push(stroke_path)
+        else
+            edge_candidates.push(... res.strokes)
+    }
+    filter_vertices_by_height_width_ratio(vertex_candidates, edge_candidates)
+    logs?.push("Found " + vertex_candidates.length +" vertex candidates and " + edge_candidates.length + " edge candidates\n \n")
+    //detect_vertices_on_edge(edge_candidates) //TODO
+    //edges_incident_to_edges(edge_candidates) //TODO
+    // TODO filter overlapping vertices, filter vertices based on size(?)
+    let graph = utils.vertices_within_distance_of_edge(VERTEX_EDGE_DISTANCE_THRESHOLD, edge_candidates, vertex_candidates)
+    const graphs = build_graphs_from_map(graph, logs)
+    for (const graph of graphs){
+        logs?.push(graph.toString())
+    }
+
     // TODO handle vertex_candidates
     // TODO handle edge_candidates
     // TODO return detected graph or null
