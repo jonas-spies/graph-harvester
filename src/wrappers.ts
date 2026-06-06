@@ -1,58 +1,87 @@
 import * as mupdf from 'mupdf'
 
 
+class Vertex{
+    x_pos: number
+    y_pos: number
+    id: number
+    constructor(id: number, x: number, y: number){
+        this.id = id
+        this.x_pos = x 
+        this.y_pos = y
+    }
+}
+
+
 export class Graph{
-    private edges: {v1: number, v2: number}[]
+    edges: {v1: number, v2: number}[]
     private map: Map<Path_Metadata, number>
-    private vertices: number
+    private vertices: Vertex[]
+    length: number
+    metadata: String[]
 
 
     constructor(vertices?: Path_Metadata[], edges?: {v1: Path_Metadata, v2: Path_Metadata}[]){
         this.map = new Map()
         this.edges = []
+        this.vertices = []
+        this.metadata = []
         var index = 0
         if (vertices){
             for (const v of vertices){
                 this.map.set(v, ++index)
+                this.vertices.push(new Vertex(index, v.center().x, v.center().y))
             }
         }
-        this.vertices = index
+        this.length = index
         if(edges){
             for (const edge of edges){
-                this.putEdge(edge)
+                let v1 = this.map.get(edge.v1)
+                let v2 = this.map.get(edge.v2)
+                if (!v1)
+                    v1 =this.putVertex(edge.v1)
+                if (!v2)
+                    v2 = this.putVertex(edge.v2)
+                this.putEdge({v1,v2})
             }
         }
     }
 
-    putVertex(vertex: Path_Metadata){
-        if (!this.map.has(vertex))
-            this.map.set(vertex, ++this.vertices)
+
+    putVertex(vertex: Path_Metadata | {id: number, x: number, y: number}): number{
+        if (vertex instanceof Path_Metadata){
+            let index = this.map.get(vertex)
+            if (!index){
+                this.map.set(vertex, ++this.length)
+                this.vertices.push(new Vertex(this.length, vertex.center().x, vertex.center().y))
+                return this.length
+            }
+            return index
+
+        }
+        else{
+            this.vertices.push(new Vertex(vertex.id, vertex.x, vertex.y))
+            this.length++
+            return vertex.id
+        }
     }
 
-
-    getVertex(vertex: Path_Metadata){
-        return this.map.get(vertex)
+    // Returns the index of a vertex given its Path_Metadata representation or adds the vertex to the graph, returning the new index
+    getOrPutVertex(vertex: Path_Metadata): number{
+        const index = this.map.get(vertex)
+        if(index)
+            return index
+        else 
+            return this.putVertex(vertex)
     }
 
     
-    putEdge(edge: {v1: Path_Metadata, v2: Path_Metadata}){
-        let v1 = this.map.get(edge.v1)
-        let v2 = this.map.get(edge.v2)
-        if (!v1){
-            let index = ++this.vertices
-            this.map.set(edge.v1, index)
-            v1 = index
-        }
-            
-        if (!v2){
-            let index = ++this.vertices
-            this.map.set(edge.v2, index)
-            v2 = index
-        }
-        this.edges.push({v1, v2})
+    putEdge(edge: {v1: number, v2: number}){
+        if(this.edges.filter(x => {(x.v1 == edge.v1 && x.v2 == edge.v2) || (x.v1 == edge.v2 && x.v2 == edge.v1)}).length == 0)
+            this.edges.push(edge)
     }
 
-
+    
     adjacencyMatrix(){//TODO
 
     }
@@ -71,7 +100,7 @@ export class Graph{
 
 
     hasVertices(threshold: number = 1){
-        if(this.vertices < threshold)
+        if(this.length < threshold)
             return false
         else return true
     }
@@ -79,8 +108,10 @@ export class Graph{
 
     toString(){
         const edges:string[] = []
+        const vertices: string[] = []
         this.edges.forEach(x => {edges.push(x.v1 + " -- " + x.v2)})
-        return "Vertices: "+this.vertices+"\nEdges:\n"+edges.join("\n")
+        this.vertices.forEach(x => {vertices.push("v"+x.id + " ["+x.x_pos+", "+x.y_pos+"]")})
+        return this.metadata.join("\n")+"\nVertices: "+this.vertices.length+"\n"+vertices.join("\n")+"\nEdges: "+this.edges.length+"\n"+edges.join("\n")
     }
 }
 

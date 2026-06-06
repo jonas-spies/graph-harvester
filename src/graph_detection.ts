@@ -71,7 +71,7 @@ function build_graphs_from_map(map: Map<Path_Metadata, Stroke[]>, logs?: string[
                     if (!visited.has(current))
                         visited.add(current)
                     graph.putVertex(current)
-                    graph.putEdge({v1: next, v2: current})
+                    graph.putEdge({v1: graph.getOrPutVertex(next), v2: graph.getOrPutVertex(current)})
                     vertices.push(next)
                     vertices.push(current)
                 }
@@ -83,7 +83,7 @@ function build_graphs_from_map(map: Map<Path_Metadata, Stroke[]>, logs?: string[
                 continue
             }
         }
-        if (graph.hasEdges() && graph.hasVertices())
+        if (graph.hasEdges(4) && graph.hasVertices(5))
             graphs.push(graph)
     }
     return graphs
@@ -100,12 +100,12 @@ function detect_vertices_on_edge(edges: Stroke[]){ // TODO for each vertex, chec
 }
 
 
-export function detect_graph_from_drawing(drawing : Drawing, logs? : string[]){
+export function detect_graphs_from_drawing(drawing : Drawing, logs? : string[]): Graph[]{
     // Finding Candidates
     let vertex_candidates: Path_Metadata[] = drawing.paths.filter(x => x.type == "fill") //Fill objects can only be vertices and should not be taken apart
     let stroke_paths: Path_Metadata[] = drawing.paths.filter(x => x.type == "stroke") // stroke objects can represent a vertex or one or more edges
     var edge_candidates: Stroke[] = []
-    logs?.push("Initializing Graph Detection for new Drawing...\n")
+    //logs?.push("Initializing Graph Detection for new Drawing...\n")
     for (var stroke_path of stroke_paths){
         let res = utils.break_path_into_strokes(stroke_path)
         if (res.is_closed)
@@ -114,7 +114,7 @@ export function detect_graph_from_drawing(drawing : Drawing, logs? : string[]){
             edge_candidates.push(... res.strokes)
     }
     filter_vertices_by_height_width_ratio(vertex_candidates, edge_candidates)
-    logs?.push("Found " + vertex_candidates.length +" vertex candidates and " + edge_candidates.length + " edge candidates\n \n")
+    //logs?.push("Found " + vertex_candidates.length +" vertex candidates and " + edge_candidates.length + " edge candidates\n \n")
     //detect_vertices_on_edge(edge_candidates) //TODO
     //edges_incident_to_edges(edge_candidates) //TODO
     // TODO filter overlapping vertices, filter vertices based on size(?)
@@ -123,8 +123,7 @@ export function detect_graph_from_drawing(drawing : Drawing, logs? : string[]){
     for (const graph of graphs){
         logs?.push(graph.toString())
     }
-
+    return graphs
     // TODO handle vertex_candidates
     // TODO handle edge_candidates
-    // TODO return detected graph or null
 }
