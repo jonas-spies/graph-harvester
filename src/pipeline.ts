@@ -26,7 +26,7 @@ export function execute(){
 }
 
 
-export function execute_file(file: string | ArrayBuffer | mupdf.Buffer | Uint8Array<ArrayBufferLike> | mupdf.Stream, logs?: string[]){
+export function execute_file(file: string | ArrayBuffer | mupdf.Buffer | Uint8Array<ArrayBufferLike> | mupdf.Stream, logs?: string[], to_png? :string){
     let doc = mupdf.PDFDocument.openDocument(file)
     var graphs: Graph[] = []
     for  (var i = 0; i< doc.countPages(); i++){
@@ -37,8 +37,11 @@ export function execute_file(file: string | ArrayBuffer | mupdf.Buffer | Uint8Ar
             var drawing = drawings[j]
             if (drawing !== undefined){
                 let new_graphs = detect_graphs_from_drawing(drawing, logs)
+                if(to_png && new_graphs.length > 0){
+                    pdf_extraction.export_drawing(drawing, to_png+"p"+(i+1)+"d"+(j+1))
+                }
                 for (var k = 0; k<new_graphs.length; k++){
-                    new_graphs[k]!.metadata.push("Page " +i + ", Drawing " + j + ", Nr " + k)
+                    new_graphs[k]!.metadata.push("Page " +(i+1) + ", Drawing " + (j+1) + ", Nr " + k)
                 }
                 graphs = graphs.concat(new_graphs)
             }      

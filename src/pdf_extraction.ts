@@ -74,6 +74,6 @@ export function export_drawing(drawing: Drawing, name: string){
                 drawDevice.strokePath(path.path, stroke ,path.ctm,mupdf.ColorSpace.DeviceRGB, [0,0,0], 1)
         }
     }
-    fs.writeFileSync("test_files/"+name+".png", pixmap.asPNG())
+    fs.writeFileSync(name+".png", pixmap.asPNG())
 }
 

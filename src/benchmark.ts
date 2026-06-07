@@ -5,7 +5,7 @@ import { execute_file } from "./pipeline.js";
 import mupdf from "mupdf"
 
 const benchmark_directory = "test_files/benchmark/TP"
-
+const result_directory = "test_files/benchmark/V1/"
 
 function parse_graphs_from_gvs(gv_files: string[], logs? : string[]): Graph[]{
     const graphs : Graph[] = []
@@ -46,10 +46,15 @@ function match_graphs(g1: Graph, g2: Graph): boolean{
         
     else if (g1.length != g2.length)
         res = false
+    if(res){
+        g1.metadata.push("Matched with a graph")
+        g2.metadata.push("Matched with a graph")
+    }
+
     return res
 }
 
-// Counts how many graph could be matched to each other
+// Counts how many graphs could be matched to each other
 export function benchmark(){
     var logs: string[] = ["Logs of the most recent benchmark\n"]
     const pdf_files = fs.readdirSync(benchmark_directory).filter(file => file.endsWith(".pdf"))
@@ -61,30 +66,32 @@ export function benchmark(){
         logs.push("Processing "+ file)
         const full_path = path.join(benchmark_directory, file)
         const file_name = path.parse(file).name
-        let graphs = execute_file(fs.readFileSync(full_path))
+        let graphs = execute_file(fs.readFileSync(full_path), undefined, result_directory+file_name+"_")
         total += graphs.length
-        for(var i = 0; i<graphs.length; i++){
-            let graph = graphs[i]!
-            graph.metadata.push(file)
-            logs.push(graph.toString())
-            exportGraph(graph, "test_files/benchmark/V1/"+file_name+"_"+i+".gv")
-        }
         const corresponding_gv_files = gv_files.filter(file => file.startsWith(file_name + "_"))
         const reference_graphs = parse_graphs_from_gvs(corresponding_gv_files)
         total_ref += reference_graphs.length
         for (const ref of reference_graphs){
             for(const graph of graphs){
+                if (graph.metadata.find(x => x == "Matched with a graph"))
+                    continue
                 if (match_graphs(ref,graph)){
                     success += 1
                     break
                 }          
             }
         }
+        for(var i = 0; i<graphs.length; i++){
+            let graph = graphs[i]!
+            graph.metadata.push(file)
+            logs.push(graph.toString())
+            exportGraph(graph, result_directory+file_name+"_"+i+".gv")
+        }
     }
     logs.push("Identified "+success + " out of "+ total_ref + " true positives and found a total of "+total+" graphs.")
     logs.push("Recall: "+ (success / total_ref) + " Precision: "+ (success / total))
     logs.push("False Negatives: "+ (total_ref - success) + " False Positives: "+ (total - success))
-    fs.writeFileSync("test_files/benchmark/V1/benchmark1.txt", logs.join("\n"))
+    fs.writeFileSync(result_directory+"benchmark1.txt", logs.join("\n"))
 }
 
 
