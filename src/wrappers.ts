@@ -16,24 +16,27 @@ class Vertex{
 export class Graph{
     edges: {v1: number, v2: number}[]
     private map: Map<Path_Metadata, number>
-    private vertices: Vertex[]
-    length: number
+    vertices: Vertex[]
+    private smallest_free_id: number
+    private used_ids: Set<number>
     metadata: String[]
 
 
     constructor(vertices?: Path_Metadata[], edges?: {v1: Path_Metadata, v2: Path_Metadata}[]){
         this.map = new Map()
+        this.used_ids = new Set()
         this.edges = []
         this.vertices = []
         this.metadata = []
-        var index = 0
+        var index = 1
         if (vertices){
             for (const v of vertices){
-                this.map.set(v, ++index)
-                this.vertices.push(new Vertex(index, v.center().x, v.center().y))
+                this.used_ids.add(index)
+                this.map.set(v, index)
+                this.vertices.push(new Vertex(index++, v.center().x, v.center().y))
             }
         }
-        this.length = index
+        this.smallest_free_id = index
         if(edges){
             for (const edge of edges){
                 let v1 = this.map.get(edge.v1)
@@ -48,21 +51,31 @@ export class Graph{
     }
 
 
-    putVertex(vertex: Path_Metadata | {id: number, x: number, y: number}): number{
+    putVertex(vertex: Path_Metadata | {id: number, x: number, y: number}): number{ // returns -1 if the ID is already being used
         if (vertex instanceof Path_Metadata){
-            let index = this.map.get(vertex)
-            if (!index){
-                this.map.set(vertex, ++this.length)
-                this.vertices.push(new Vertex(this.length, vertex.center().x, vertex.center().y))
-                return this.length
+            let existing = this.map.get(vertex)
+            if (existing === undefined){
+                let index = this.smallest_free_id
+                while (this.used_ids.has(index)){
+                    index++
+                }
+                this.map.set(vertex, index)
+                this.vertices.push(new Vertex(index, vertex.center().x, vertex.center().y))
+                this.used_ids.add(index)
+                this.smallest_free_id = index +1
+                return index
             }
-            return index
-
+            return existing
         }
         else{
-            this.vertices.push(new Vertex(vertex.id, vertex.x, vertex.y))
-            this.length++
-            return vertex.id
+            if (this.used_ids.has(vertex.id)){
+                return -1
+            }
+            else{
+                this.vertices.push(new Vertex(vertex.id, vertex.x, vertex.y))
+                this.used_ids.add(vertex.id)
+                return vertex.id
+            }
         }
     }
 
@@ -77,13 +90,11 @@ export class Graph{
 
     
     putEdge(edge: {v1: number, v2: number}){
-        if(this.edges.filter(x => {(x.v1 == edge.v1 && x.v2 == edge.v2) || (x.v1 == edge.v2 && x.v2 == edge.v1)}).length == 0)
-            this.edges.push(edge)
-    }
-
-    
-    adjacencyMatrix(){//TODO
-
+        if (edge.v1 == edge.v2) // Self Loop
+            return
+        if(this.edges.some(x => {(x.v1 == edge.v1 && x.v2 == edge.v2) || (x.v1 == edge.v2 && x.v2 == edge.v1)})) // equivalent edge already registered
+           return
+        this.edges.push(edge) 
     }
 
 
@@ -100,7 +111,7 @@ export class Graph{
 
 
     hasVertices(threshold: number = 1){
-        if(this.length < threshold)
+        if(this.smallest_free_id < threshold)
             return false
         else return true
     }

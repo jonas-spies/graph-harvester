@@ -6,6 +6,7 @@ import mupdf from "mupdf"
 
 const benchmark_directory = "test_files/benchmark/TP"
 const result_directory = "test_files/benchmark/V1/"
+const matched_flag = "Matched with a graph"
 
 function parse_graphs_from_gvs(gv_files: string[], logs? : string[]): Graph[]{
     const graphs : Graph[] = []
@@ -44,11 +45,11 @@ function match_graphs(g1: Graph, g2: Graph): boolean{
         res = false
     }
         
-    else if (g1.length != g2.length)
+    else if (g1.vertices.length != g2.vertices.length)
         res = false
     if(res){
-        g1.metadata.push("Matched with a graph")
-        g2.metadata.push("Matched with a graph")
+        g1.metadata.push(matched_flag)
+        g2.metadata.push(matched_flag)
     }
 
     return res
@@ -73,7 +74,7 @@ export function benchmark(){
         total_ref += reference_graphs.length
         for (const ref of reference_graphs){
             for(const graph of graphs){
-                if (graph.metadata.find(x => x == "Matched with a graph"))
+                if (graph.metadata.some(x => x == matched_flag))
                     continue
                 if (match_graphs(ref,graph)){
                     success += 1
