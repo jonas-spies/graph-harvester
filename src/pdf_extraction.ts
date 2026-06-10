@@ -53,10 +53,18 @@ export function group_paths_by_bb(paths: Path_Metadata[]): Drawing[]{
 
 export function export_drawing(drawing: Drawing, name: string){     
     /** Exports a drawing as PNG for debugging purposes*/
+    const scale = 5
+    const matrix = mupdf.Matrix.scale(scale,scale)
     let boundingbox = drawing.getBounds()
+    let {x: x1,y: y1} = geometry_utils.transform_point(matrix, boundingbox[0], boundingbox[1])
+    boundingbox[0] = x1
+    boundingbox[1] = y1
+    let {x: x2,y: y2} = geometry_utils.transform_point(matrix, boundingbox[2], boundingbox[3])
+    boundingbox[2] = x2
+    boundingbox[3] = y2
     const pixmap = new mupdf.Pixmap(mupdf.ColorSpace.DeviceRGB, boundingbox, false)
     pixmap.clear(255)
-    let drawDevice = new mupdf.DrawDevice(mupdf.Matrix.identity, pixmap)
+    let drawDevice = new mupdf.DrawDevice(matrix, pixmap)
     
     for (var path of drawing.paths){
         switch (path.type){

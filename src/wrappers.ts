@@ -19,7 +19,7 @@ export class Graph{
     vertices: Vertex[]
     private smallest_free_id: number
     private used_ids: Set<number>
-    metadata: String[]
+    metadata: string[]
 
 
     constructor(vertices?: Path_Metadata[], edges?: {v1: Path_Metadata, v2: Path_Metadata}[]){
@@ -95,6 +95,22 @@ export class Graph{
         if(this.edges.some(x => {(x.v1 == edge.v1 && x.v2 == edge.v2) || (x.v1 == edge.v2 && x.v2 == edge.v1)})) // equivalent edge already registered
            return
         this.edges.push(edge) 
+    }
+
+
+    toAdjacencyMatrix(){
+        let sorted_vertices = [... this.vertices].sort((a,b) => a.id - b.id)
+        const n = this.vertices.length
+        const adjacency = Array.from({length: n}, () => Array(n).fill(0)) // all entries 0 at first
+        const index_map = new Map<number, number>()
+        sorted_vertices.forEach( (v,i) => index_map.set(v.id, i))
+        for (const edge of this.edges){
+            let i1 = index_map.get(edge.v1)!
+            let i2 = index_map.get(edge.v2)!
+            adjacency[i1]![i2] = 1
+            adjacency[i2]![i1] = 1
+        }
+        return adjacency
     }
 
 

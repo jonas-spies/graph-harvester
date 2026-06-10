@@ -7,6 +7,7 @@ import mupdf from "mupdf"
 const benchmark_directory = "test_files/benchmark/TP"
 const result_directory = "test_files/benchmark/V1/"
 const matched_flag = "Matched with a graph"
+const TP_but_not_A_grade = "test_files/benchmark/TP_but_not_A_grade" // obsolete
 
 function parse_graphs_from_gvs(gv_files: string[], logs? : string[]): Graph[]{
     const graphs : Graph[] = []
@@ -95,9 +96,31 @@ export function benchmark(){
     fs.writeFileSync(result_directory+"benchmark1.txt", logs.join("\n"))
 }
 
+function produceAdjacencyListFromGvs(){
+    const gv_files = fs.readdirSync(TP_but_not_A_grade).filter(file => file.endsWith(".gv"))
+    const reference_graphs = parse_graphs_from_gvs(gv_files)
+    for (const ref of reference_graphs){
+        const name = ref.metadata[0]!
+        exportGraphAsAdjacency(ref, TP_but_not_A_grade+"/"+path.parse(name).name+ ".txt")
+    }
+}
+
 
 function exportGraph(graph: Graph, name: string){
     fs.writeFileSync(name, graph.toString())
 }
 
+function exportGraphAsAdjacency(graph: Graph, name: string){
+    let adjacency = graph.toAdjacencyMatrix()
+    let asString : string = ""
+    for (const row of adjacency){
+        for (const entry of row){
+            asString += (entry + " ")
+        }
+        asString +="\n"
+    }
+    fs.writeFileSync(name, asString)
+}
+
 benchmark()
+//produceAdjacencyListFromGvs()
