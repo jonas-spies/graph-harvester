@@ -90,12 +90,8 @@ function build_graphs_from_map(map: Map<Path_Metadata, Stroke[]>, logs?: string[
 }
 
 
-function edges_incident_to_edges(edges: Stroke[]){ //TODO: for each edge, use KDBush to find all other edges that are connected in start or endpoint, then filter based on StrokeStyle for the most likely candidate
 
-}
-
-
-function detect_vertices_on_edge(edges: Stroke[]){ // TODO for each vertex, check if it lies between an edges' two endpoints and split those edges in two. 
+function vertices_between_endpoints(edges: Stroke[], vertices: Path_Metadata[]){ // TODO for each vertex, check if it lies between an edges' two endpoints and split those edges in two. 
 
 }
 
@@ -115,10 +111,13 @@ export function detect_graphs_from_drawing(drawing : Drawing, logs? : string[]):
     }
     filter_vertices_by_height_width_ratio(vertex_candidates, edge_candidates)
     //logs?.push("Found " + vertex_candidates.length +" vertex candidates and " + edge_candidates.length + " edge candidates\n \n")
-    //detect_vertices_on_edge(edge_candidates) //TODO
-    //edges_incident_to_edges(edge_candidates) //TODO
     // TODO filter overlapping vertices, filter vertices based on size(?)
     let graph = utils.vertices_within_distance_of_edge(VERTEX_EDGE_DISTANCE_THRESHOLD, edge_candidates, vertex_candidates)
+    //vertices_between_endpoints()
+    let areas: number[] = []
+    vertex_candidates.forEach(x => areas.push(x.area()))
+    let radius = Math.sqrt(utils.median(areas)) / 2 // not exact but good enough
+    utils.edges_incident_to_edges(radius*VERTEX_EDGE_DISTANCE_THRESHOLD, edge_candidates, graph)
     const graphs = build_graphs_from_map(graph, logs)
     for (const graph of graphs){
         logs?.push(graph.toString())

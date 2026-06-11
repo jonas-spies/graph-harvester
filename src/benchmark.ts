@@ -96,6 +96,7 @@ export function benchmark(){
     fs.writeFileSync(result_directory+"benchmark1.txt", logs.join("\n"))
 }
 
+
 function produceAdjacencyListFromGvs(){
     const gv_files = fs.readdirSync(TP_but_not_A_grade).filter(file => file.endsWith(".gv"))
     const reference_graphs = parse_graphs_from_gvs(gv_files)
@@ -109,6 +110,7 @@ function produceAdjacencyListFromGvs(){
 function exportGraph(graph: Graph, name: string){
     fs.writeFileSync(name, graph.toString())
 }
+
 
 function exportGraphAsAdjacency(graph: Graph, name: string){
     let adjacency = graph.toAdjacencyMatrix()

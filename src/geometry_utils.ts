@@ -135,3 +135,76 @@ export function vertices_within_distance_of_edge(distance: number, edges: Stroke
     }
     return map
 }
+
+
+function stroke_similarity(a: mupdf.StrokeState, b: mupdf.StrokeState){ //TODO compares two StrokeStyles and gives a similarity score in the end
+    return (
+        a.getLineWidth === b.getLineWidth &&
+        a.getLineCap === b.getLineCap &&
+        a.getLineJoin === b.getLineJoin
+    )
+}
+
+
+export function median(values: number[]): number {
+    if (values.length === 0)
+        throw new Error("Cannot compute median of empty array")
+    const sorted = [...values].sort((a, b) => a - b)
+    const mid = Math.floor(sorted.length / 2)
+    return sorted[mid]!
+}
+
+// Ideally used on the set of all orphans and half orphans when some vertices have already been identified. From there, taking the mean radius of vertices times a multiplier gives a decent distance threshold
+export function edges_incident_to_edges(distance: number, edges: Stroke[], graph: Map<Path_Metadata, Stroke[]>){ // TODO? filter based on StrokeStyle for the most likely candidate
+    const n = edges.length
+    const points = [... edges.map(x => x.start), ... edges.map(x => x.end)] // First n indices are of type start, indices from n, ..., 2n-1 are of type end
+    const tree = new KDBush(2*n)
+    for (const {x,y} of points)
+        tree.add(x,y)
+    tree.finish()
+    for (var i = 0; i < 2*n; i++){
+        var edge : Stroke
+        var point : {x: number, y: number}
+        const start = (i < n) // indicates if i is index of start point
+        if (start){
+            edge = edges[i]!
+            point = edge.start
+        }
+        else{
+            edge = edges[i - n]!
+            point = edge.end
+        }
+        if ( (start && edge.start_incident) || (!start && edge.end_incident))
+            continue            
+        const indices = tree.within(point.x, point.y, distance).filter(x => (x != i) && (x != i + n) && (x != i - n)) // don't include points from the same edge
+        switch(indices.length){
+            case 0: // edge stays an orphan
+                break
+            case 1: // edge is continued
+                let index = indices[0]!
+                const other_edge = index < n? (edges[index]!) : (edges[index - n]!)
+                //TODO: maybe infer a vertex if StrokeStyle differs too much
+                if (start)
+                    edge.start_incident = other_edge
+                else
+                    edge.end_incident = other_edge
+                break
+            default: // more than 1 indicates an implied vertex
+                let vertex = new Path_Metadata(new mupdf.Path(), [point.x - (distance/2), point.y -(distance/2), point.x + (distance/2), point.y + (distance/2)], mupdf.Matrix.identity, "fill")
+                let edgelist: Stroke[] = [edge]
+                for (const index of indices) {
+                    const other_edge = index < n? (edges[index]!) : (edges[index - n]!)
+                    if (index < n)
+                        other_edge.start_incident = vertex
+                    else
+                        other_edge.end_incident = vertex
+                    edgelist.push(other_edge)
+                }
+                graph.set(vertex, edgelist)
+                if (start)
+                    edge.start_incident = vertex
+                else
+                    edge.end_incident = vertex
+        }
+    }
+}
