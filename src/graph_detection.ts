@@ -90,10 +90,31 @@ function build_graphs_from_map(map: Map<Path_Metadata, Stroke[]>, logs?: string[
 }
 
 
-
-function vertices_between_endpoints(edges: Stroke[], vertices: Path_Metadata[]){ // TODO for each vertex, check if it lies between an edges' two endpoints and split those edges in two. 
+function vertices_between_endpoints(edges: Stroke[], vertices: Path_Metadata[], graph: Map<Path_Metadata, Stroke[]>){ // TODO for each vertex, check if it lies between an edges' two endpoints and split those edges in two. 
 
 }
+
+// Probably too dangerous because it produces many very short segments that might all be incident to one vertex
+/*function approximate_curves_as_straight_line_segments(edges: Stroke[]){
+    let n = edges.length
+    for (var i = 0; i < n; i++){
+        let edge = edges.shift()!
+        if (edge.type == "line"){ // Already straight line
+            edges.push(edge)
+            continue
+        }
+        let increment = 1 / BEZIER_APPROXIMATION_RESOLUTION
+        let last = edge.start
+        var t = increment
+        while (t < (1 - increment)){ // ensures that the last segment is at least increment long
+            let point = utils.walk_along_edge(edge, t)
+            edges.push(new Stroke("line", edge.stroke, [last, point]))
+            last = point
+            t += increment
+        }
+        edges.push(new Stroke("line", edge.stroke, [last, edge.end]))
+    }
+}*/
 
 
 export function detect_graphs_from_drawing(drawing : Drawing, logs? : string[]): Graph[]{
@@ -110,10 +131,9 @@ export function detect_graphs_from_drawing(drawing : Drawing, logs? : string[]):
             edge_candidates.push(... res.strokes)
     }
     filter_vertices_by_height_width_ratio(vertex_candidates, edge_candidates)
-    //logs?.push("Found " + vertex_candidates.length +" vertex candidates and " + edge_candidates.length + " edge candidates\n \n")
     // TODO filter overlapping vertices, filter vertices based on size(?)
     let graph = utils.vertices_within_distance_of_edge(VERTEX_EDGE_DISTANCE_THRESHOLD, edge_candidates, vertex_candidates)
-    //vertices_between_endpoints()
+    graph = utils.split_edges_with_middle_vertex(graph)
     let areas: number[] = []
     vertex_candidates.forEach(x => areas.push(x.area()))
     let radius = Math.sqrt(utils.median(areas)) / 2 // not exact but good enough
@@ -123,6 +143,4 @@ export function detect_graphs_from_drawing(drawing : Drawing, logs? : string[]):
         logs?.push(graph.toString())
     }
     return graphs
-    // TODO handle vertex_candidates
-    // TODO handle edge_candidates
 }

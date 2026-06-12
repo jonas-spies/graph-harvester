@@ -3,6 +3,9 @@ import RBush from "rbush"
 import KDBush from 'kdbush'
 import * as mupdf from "mupdf"
 
+// Approximate every bezier curve by 20 straight line segments
+const STROKE_APPROXIMATION_RESOLUTION = 20
+
 
 export function merge_bounding_boxes(drawings: Drawing[]){
     const tree = new RBush<Drawing>()
@@ -32,6 +35,35 @@ export function merge_bounding_boxes(drawings: Drawing[]){
         }
     }
     return result
+}
+
+// For t=0, returns start point, for t=1 returns end point. For anything inbetween, it returns the respective point on the line
+export function walk_along_edge(edge: Stroke, t: number): {x: number, y: number} {
+    if (t > 1 || t < 0)
+        throw new Error("Illegal argument for t")
+    if (edge.type == "line"){
+        let x = edge.start.x * t + edge.end.x * (1-t)
+        let y = edge.start.y * t + edge.end.y * (1-t)
+        return {x,y}
+    }
+    let p0: {x: number, y: number} = edge.start
+    let p1: {x: number, y: number} = edge.control_pts![0]!
+    let p2: {x: number, y: number} = edge.control_pts![1]!
+    let p3: {x: number, y: number} = edge.end
+    let u = 1 - t
+    return {
+        x:
+            u*u*u*p0.x +
+            3*u*u*t*p1.x +
+            3*u*t*t*p2.x +
+            t*t*t*p3.x,
+
+        y:
+            u*u*u*p0.y +
+            3*u*u*t*p1.y +
+            3*u*t*t*p2.y +
+            t*t*t*p3.y
+    }
 }
 
 
@@ -104,8 +136,8 @@ export function scale_bb_by_factor(bb: mupdf.Rect, factor: number): mupdf.Rect{
     return [minX, minY, maxX, maxY] as mupdf.Rect
 }
 
-
-export function vertices_within_distance_of_edge(distance: number, edges: Stroke[], vertices: Path_Metadata[]): Map<Path_Metadata, Stroke[]>{
+// OLD VERSION
+/*export function vertices_within_distance_of_edge(distance: number, edges: Stroke[], vertices: Path_Metadata[]): Map<Path_Metadata, Stroke[]>{
     const map = new Map<Path_Metadata, Stroke[]>()
     const n = edges.length
     const points = [... edges.map(x => x.start), ... edges.map(x => x.end)] // First n indices are of type start, indices from n, ..., 2n-1 are of type end
@@ -134,6 +166,151 @@ export function vertices_within_distance_of_edge(distance: number, edges: Stroke
         map.set(v, foundEdges)
     }
     return map
+}*/
+// NEW VERSION
+export function vertices_within_distance_of_edge(distance: number, edges: Stroke[], vertices: Path_Metadata[]): Map<Path_Metadata, Stroke[]>{
+    const map = new Map<Path_Metadata, Stroke[]>()
+    const point_to_edge: Stroke[] = [] // using this, index of point leads to corresponding edge
+    const edge_to_index_range = new Map<Stroke, {first_index : number, last_index: number}>()
+    const points: {x: number, y: number}[] = []
+    var index = 0
+    for (const edge of edges){
+        let edge_points = edge.toPolyLine(STROKE_APPROXIMATION_RESOLUTION)
+        edge_to_index_range.set(edge, {first_index: index, last_index: (index + edge_points.length -1)})
+        for (const point of edge_points){
+            points.push(point)
+            point_to_edge.push(edge)
+            index++
+        }
+    }
+    const n = points.length
+    const tree = new KDBush(n)
+    for (const {x,y} of points)
+        tree.add(x,y)
+    tree.finish()
+    for (const v of vertices){ // O(n)
+        let bb = scale_bb_by_factor(v.bounds, distance)
+        // Make a query for all points within distance of bounding box of v
+        const foundIds = tree.range(bb[0], bb[1], bb[2], bb[3])
+        const foundEdges: Set<Stroke> = new Set()
+        foundIds.forEach(x => {
+            let edge = point_to_edge[x]!
+            foundEdges.add(edge)
+        })
+        const incident_edges : Stroke[] = []
+        const x = v.center().x
+        const y = v.center().y
+        for (const edge of foundEdges){ // O(m)
+            let {first_index, last_index} = edge_to_index_range.get(edge)!
+            var lowest_distance = Infinity
+            var lowest_index = first_index
+            for (var i = first_index; i <= last_index; i++){ // O(1) => total runtime quadratic
+                let {x: px, y: py} = points[i]!
+                const distance = ((px - x) * (px - x)) + ((py - y) * (py - y)) // euclidean distance without sqrt
+                if (distance < lowest_distance){
+                    lowest_distance = distance
+                    lowest_index = i
+                }
+            }
+            switch(lowest_index){
+                case first_index:
+                    edge.start_incident = v
+                    incident_edges.push(edge)
+                    break
+                case last_index:
+                    edge.end_incident = v
+                    incident_edges.push(edge)
+                    break
+                default: // TODO: only the vertices will know of the edges, not vice versa. Write a function that splits edges along unknown vertices
+                    incident_edges.push(edge)
+                    break
+            }
+        }
+        map.set(v, incident_edges)
+    }
+    return map
+}
+
+function add_to_graph_map(graph: Map<Path_Metadata, Stroke[]>, vertex: Path_Metadata, edge: Stroke){
+    let list = graph.get(vertex)
+    if (!list){
+        list = []
+        graph.set(vertex, list)
+    }
+    list.push(edge)
+}
+
+
+export function split_edges_with_middle_vertex(graph: Map<Path_Metadata, Stroke[]>): Map<Path_Metadata, Stroke[]> {
+    const edge_to_vertices = new Map<Stroke, Path_Metadata[]>()
+    const new_graph = new Map<Path_Metadata, Stroke[]>()
+    for (const [vertex, edges] of graph){
+        for (const edge of edges){
+            let list = edge_to_vertices.get(edge)
+            if (!list){
+                list = []
+                edge_to_vertices.set(edge, list)
+            }
+            list.push(vertex)
+        }
+    }
+    for (const [edge, vertices] of edge_to_vertices){
+        const edge_points = edge.toPolyLine(STROKE_APPROXIMATION_RESOLUTION)
+        const split_points: {vertex: Path_Metadata, t: number}[] = []
+        const start_vertices = new Set<Path_Metadata>()
+        const end_vertices = new Set<Path_Metadata>()
+
+        for (const vertex of vertices){
+            const {x, y} = vertex.center()
+            var shortest_distance = Infinity
+            var shortest_index = 0
+            for (var i = 0; i < edge_points.length; i++){
+                let {x: px, y: py} = edge_points[i]!
+                const distance = ((px - x) * (px - x)) + ((py - y) * (py - y)) // euclidean distance without sqrt
+                if (distance < shortest_distance){
+                    shortest_distance = distance
+                    shortest_index = i
+                }
+            }
+            switch(shortest_index){
+                case 0:
+                    start_vertices.add(vertex)
+                    break
+                case edge_points.length -1:
+                    end_vertices.add(vertex)
+                    break
+                default:
+                    const t = shortest_index / (edge_points.length-1)
+                    split_points.push({vertex, t})
+            }
+        }
+        if (split_points.length == 0){
+            for (const vertex of vertices){
+                add_to_graph_map(new_graph, vertex, edge)
+            }
+            continue
+        }
+        split_points.sort( (a,b) => a.t - b.t)
+        const breakpoints = [{t: 0, vertex: [...start_vertices][0] ?? undefined}, ...split_points, {t: 1, vertex: [...end_vertices][0] ?? undefined}]
+        for (var i = 0; i < breakpoints.length-1; i++){
+            const left = breakpoints[i]!
+            const right = breakpoints[i+1]!
+
+            const p1 = walk_along_edge(edge, left.t)
+            const p2 = walk_along_edge(edge, right.t)
+
+            const segment = new Stroke("line", edge.stroke, [p1,p2])
+            if (left.vertex){
+                segment.start_incident = left.vertex
+                add_to_graph_map(new_graph, left.vertex, segment)
+            }
+            if (right.vertex){
+                segment.end_incident = right.vertex
+                add_to_graph_map(new_graph, right.vertex, segment)
+            }
+        }
+    }
+    return new_graph
 }
 
 
@@ -154,7 +331,7 @@ export function median(values: number[]): number {
     return sorted[mid]!
 }
 
-// Ideally used on the set of all orphans and half orphans when some vertices have already been identified. From there, taking the mean radius of vertices times a multiplier gives a decent distance threshold
+// Ideally used on the set of all orphans and half orphans when some vertices have already been identified. From there, taking the median radius of vertices times a multiplier gives a decent distance threshold
 export function edges_incident_to_edges(distance: number, edges: Stroke[], graph: Map<Path_Metadata, Stroke[]>){ // TODO? filter based on StrokeStyle for the most likely candidate
     const n = edges.length
     const points = [... edges.map(x => x.start), ... edges.map(x => x.end)] // First n indices are of type start, indices from n, ..., 2n-1 are of type end

@@ -1,4 +1,5 @@
 import * as mupdf from 'mupdf'
+import * as utils from "./geometry_utils.js"
 
 
 class Vertex{
@@ -181,12 +182,14 @@ export class Stroke{
     }
 
 
-    split_in_pnt(x: number, y: number){
+    split_in_pnt(x: number, y: number, t: number): {e1: Stroke, e2: Stroke}{
         if (this.type === "curve"){
-            console.log("Warning: Trying to split curve type vertex, no implementation yet!")
-            return undefined
+            throw new Error("No implementation for splitting curve type edge")
         }
         else{
+            let point = utils.walk_along_edge(this, t)
+            if (point.x != x || point.y != y)
+                console.log("Split in point: got x:"+x+" y:"+y+" but t yielded x:"+point.x + " y:"+point.y)
             const e1 = new Stroke("line", this.stroke, [this.start, {x,y}])
             const e2 = new Stroke("line", this.stroke, [{x,y}, this.end])
             return {e1, e2}
@@ -196,6 +199,18 @@ export class Stroke{
 
     toString(){
         return "Type: " + this.type + " Start: " + this.start.x + " "+ this.start.y + " End: " + this.end.x + " " + this.end.y
+    }
+
+    toPolyLine(resoltuion: number): {x: number, y: number}[]{
+        let increment = 1 / resoltuion
+        var t = increment
+        let points: {x: number, y: number}[] = [this.start]
+        while (t < (1 - increment)){ // ensures that the last segment is at least increment long
+            points.push(utils.walk_along_edge(this, t))
+            t += increment
+        }
+        points.push(this.end)
+        return points
     }
 }
 
