@@ -1,11 +1,11 @@
-import { Graph } from "./wrappers.js";
+import { Graph, Vertex } from "./wrappers.js";
 import fs from "fs"
 import path from "path"
 import { execute_file } from "./pipeline.js";
 import mupdf from "mupdf"
 
 const benchmark_directory = "test_files/benchmark/TP"
-const result_directory = "test_files/benchmark/V1/"
+const result_directory = "test_files/benchmark/V2/"
 const matched_flag = "Matched with a graph"
 const TP_but_not_A_grade = "test_files/benchmark/TP_but_not_A_grade" // obsolete
 
@@ -24,8 +24,8 @@ function parse_graphs_from_gvs(gv_files: string[], logs? : string[]): Graph[]{
         for (const line of lines){
             let vertex = line.match(vertexRegex)
             if (vertex){
-                graph.putVertex({id: Number(vertex[1]), x: Number(vertex[2]), y: Number(vertex[3])})
-            }  
+                graph.putVertex(new Vertex (Number(vertex[1]), Number(vertex[2]), Number(vertex[3])))
+            }
         }
         for (const line of lines){
             let edge = line.match(edgeRegex)
@@ -33,8 +33,12 @@ function parse_graphs_from_gvs(gv_files: string[], logs? : string[]): Graph[]{
                     graph.putEdge({v1: Number(edge[1]), v2: Number(edge[2])})
                 }
         }
-        logs?.push(graph.toString())
-        graphs.push(graph)
+        let subgraphs = graph.split_disconnected_components()
+        subgraphs.forEach( (g, index) => {
+            logs?.push(g.toString())
+            fs.writeFileSync(benchmark_directory+"/modified/"+gv_file+index+".gv", g.toString())
+        })
+        graphs.push(... subgraphs)
     }
     return graphs
 }
@@ -88,12 +92,13 @@ export function benchmark(){
             graph.metadata.push(file)
             logs.push(graph.toString())
             exportGraph(graph, result_directory+file_name+"_"+i+".gv")
+            exportGraphAsAdjacency(graph, result_directory+file_name+"_"+i+"_adj.txt")
         }
     }
     logs.push("Identified "+success + " out of "+ total_ref + " true positives and found a total of "+total+" graphs.")
     logs.push("Recall: "+ (success / total_ref) + " Precision: "+ (success / total))
     logs.push("False Negatives: "+ (total_ref - success) + " False Positives: "+ (total - success))
-    fs.writeFileSync(result_directory+"benchmark1.txt", logs.join("\n"))
+    fs.writeFileSync(result_directory+"benchmark.txt", logs.join("\n"))
 }
 
 

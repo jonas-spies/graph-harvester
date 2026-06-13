@@ -2,7 +2,7 @@ import * as mupdf from 'mupdf'
 import * as utils from "./geometry_utils.js"
 
 
-class Vertex{
+export class Vertex{
     x_pos: number
     y_pos: number
     id: number
@@ -52,7 +52,7 @@ export class Graph{
     }
 
 
-    putVertex(vertex: Path_Metadata | {id: number, x: number, y: number}): number{ // returns -1 if the ID is already being used
+    putVertex(vertex: Path_Metadata | Vertex ): number{ // returns -1 if the ID is already being used
         if (vertex instanceof Path_Metadata){
             let existing = this.map.get(vertex)
             if (existing === undefined){
@@ -73,7 +73,7 @@ export class Graph{
                 return -1
             }
             else{
-                this.vertices.push(new Vertex(vertex.id, vertex.x, vertex.y))
+                this.vertices.push(vertex)
                 this.used_ids.add(vertex.id)
                 return vertex.id
             }
@@ -89,7 +89,7 @@ export class Graph{
             return this.putVertex(vertex)
     }
 
-    
+
     putEdge(edge: {v1: number, v2: number}){
         if (edge.v1 == edge.v2) // Self Loop
             return
@@ -128,9 +128,54 @@ export class Graph{
 
 
     hasVertices(threshold: number = 1){
-        if(this.smallest_free_id < threshold)
+        if(this.vertices.length < threshold)
             return false
         else return true
+    }
+
+    
+    split_disconnected_components(): Graph[]{
+        const visited : Set<Vertex | {v1: number, v2: number}> = new Set<Vertex | {v1: number, v2: number}>()
+        const graphs : Graph[] = []
+        for (const vertex of this.vertices){ // for every vertex, do DFS
+            if (visited.has(vertex)) // already part of some graph, so skip
+                continue
+            const graph = new Graph()
+            const vertices: Vertex[] = [vertex]
+            while (vertices.length > 0){ // actual DFS
+                let next = vertices.pop()!
+                if(!visited.has(next)){
+                    visited.add(next)
+                    graph.putVertex(next)
+                }
+                let edge = this.edges.find((edge) => (edge.v1 == next.id || edge.v2 == next.id) && !visited.has(edge)) //An arbitrary edge that has not yet been visited
+                if (edge){
+                    visited.add(edge)
+                    let other_id = (next.id == edge.v1)? edge.v2 : edge.v1
+                    let other = this.vertices.find(v => v.id == other_id)
+                    if (other){
+                        graph.putVertex(other)
+                        graph.putEdge(edge)
+                        visited.add(other)
+                        vertices.push(next)
+                        vertices.push(other)
+                    }
+                    else
+                        console.log("Found an edge with phantom vertex")
+                    }
+                else { // Vertex has no unseen edges
+                    continue
+                }
+            }
+            if (graph.hasEdges(4) && graph.hasVertices(5)){
+                graphs.push(graph)
+            }
+            else{
+                console.log("Rejected graph with "+graph.edges.length+" edges and "+ graph.vertices.length+" vertices.")
+            }
+
+        }
+        return graphs
     }
 
 
@@ -187,7 +232,7 @@ export class Stroke{
             throw new Error("No implementation for splitting curve type edge")
         }
         else{
-            let point = utils.walk_along_edge(this, t)
+            let point = this.walk_along_edge(t)
             if (point.x != x || point.y != y)
                 console.log("Split in point: got x:"+x+" y:"+y+" but t yielded x:"+point.x + " y:"+point.y)
             const e1 = new Stroke("line", this.stroke, [this.start, {x,y}])
@@ -206,11 +251,40 @@ export class Stroke{
         var t = increment
         let points: {x: number, y: number}[] = [this.start]
         while (t < (1 - increment)){ // ensures that the last segment is at least increment long
-            points.push(utils.walk_along_edge(this, t))
+            points.push(this.walk_along_edge(t))
             t += increment
         }
         points.push(this.end)
         return points
+    }
+
+    // For t=0, returns start point, for t=1 returns end point. For anything inbetween, it returns the respective point on the line
+    walk_along_edge(t: number): {x: number, y: number} {
+        if (t > 1 || t < 0) // Will probably remove this check because it seems like an easy way to ''extend'' the line in a certain direction
+            throw new Error("Illegal argument for t")
+        if (this.type == "line"){
+            let x = this.start.x * t + this.end.x * (1-t)
+            let y = this.start.y * t + this.end.y * (1-t)
+            return {x,y}
+        }
+        let p0: {x: number, y: number} = this.start
+        let p1: {x: number, y: number} = this.control_pts![0]!
+        let p2: {x: number, y: number} = this.control_pts![1]!
+        let p3: {x: number, y: number} = this.end
+        let u = 1 - t
+        return {
+            x:
+                u*u*u*p0.x +
+                3*u*u*t*p1.x +
+                3*u*t*t*p2.x +
+                t*t*t*p3.x,
+    
+            y:
+                u*u*u*p0.y +
+                3*u*u*t*p1.y +
+                3*u*t*t*p2.y +
+                t*t*t*p3.y
+        }
     }
 }
 

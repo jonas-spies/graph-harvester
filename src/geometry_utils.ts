@@ -37,35 +37,6 @@ export function merge_bounding_boxes(drawings: Drawing[]){
     return result
 }
 
-// For t=0, returns start point, for t=1 returns end point. For anything inbetween, it returns the respective point on the line
-export function walk_along_edge(edge: Stroke, t: number): {x: number, y: number} {
-    if (t > 1 || t < 0)
-        throw new Error("Illegal argument for t")
-    if (edge.type == "line"){
-        let x = edge.start.x * t + edge.end.x * (1-t)
-        let y = edge.start.y * t + edge.end.y * (1-t)
-        return {x,y}
-    }
-    let p0: {x: number, y: number} = edge.start
-    let p1: {x: number, y: number} = edge.control_pts![0]!
-    let p2: {x: number, y: number} = edge.control_pts![1]!
-    let p3: {x: number, y: number} = edge.end
-    let u = 1 - t
-    return {
-        x:
-            u*u*u*p0.x +
-            3*u*u*t*p1.x +
-            3*u*t*t*p2.x +
-            t*t*t*p3.x,
-
-        y:
-            u*u*u*p0.y +
-            3*u*u*t*p1.y +
-            3*u*t*t*p2.y +
-            t*t*t*p3.y
-    }
-}
-
 
 export function transform_point(ctm: mupdf.Matrix, x: number, y: number){
     return {
@@ -241,9 +212,10 @@ function add_to_graph_map(graph: Map<Path_Metadata, Stroke[]>, vertex: Path_Meta
 }
 
 
-export function split_edges_with_middle_vertex(graph: Map<Path_Metadata, Stroke[]>): Map<Path_Metadata, Stroke[]> {
+export function split_edges_with_middle_vertex(graph: Map<Path_Metadata, Stroke[]>, edges: Stroke[]): {new_graph: Map<Path_Metadata, Stroke[]>, new_edges: Stroke[]} {
     const edge_to_vertices = new Map<Stroke, Path_Metadata[]>()
     const new_graph = new Map<Path_Metadata, Stroke[]>()
+    const new_edges : Stroke[] = []
     for (const [vertex, edges] of graph){
         for (const edge of edges){
             let list = edge_to_vertices.get(edge)
@@ -285,6 +257,7 @@ export function split_edges_with_middle_vertex(graph: Map<Path_Metadata, Stroke[
             }
         }
         if (split_points.length == 0){
+            new_edges.push(edge)
             for (const vertex of vertices){
                 add_to_graph_map(new_graph, vertex, edge)
             }
@@ -296,10 +269,11 @@ export function split_edges_with_middle_vertex(graph: Map<Path_Metadata, Stroke[
             const left = breakpoints[i]!
             const right = breakpoints[i+1]!
 
-            const p1 = walk_along_edge(edge, left.t)
-            const p2 = walk_along_edge(edge, right.t)
+            const p1 = edge.walk_along_edge(left.t)
+            const p2 = edge.walk_along_edge(right.t)
 
             const segment = new Stroke("line", edge.stroke, [p1,p2])
+            new_edges.push(segment)
             if (left.vertex){
                 segment.start_incident = left.vertex
                 add_to_graph_map(new_graph, left.vertex, segment)
@@ -310,7 +284,8 @@ export function split_edges_with_middle_vertex(graph: Map<Path_Metadata, Stroke[
             }
         }
     }
-    return new_graph
+    //WARNING: isolated vertices will simply be discarded here
+    return {new_graph, new_edges}
 }
 
 

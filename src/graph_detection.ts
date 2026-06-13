@@ -90,10 +90,6 @@ function build_graphs_from_map(map: Map<Path_Metadata, Stroke[]>, logs?: string[
 }
 
 
-function vertices_between_endpoints(edges: Stroke[], vertices: Path_Metadata[], graph: Map<Path_Metadata, Stroke[]>){ // TODO for each vertex, check if it lies between an edges' two endpoints and split those edges in two. 
-
-}
-
 // Probably too dangerous because it produces many very short segments that might all be incident to one vertex
 /*function approximate_curves_as_straight_line_segments(edges: Stroke[]){
     let n = edges.length
@@ -132,12 +128,19 @@ export function detect_graphs_from_drawing(drawing : Drawing, logs? : string[]):
     }
     filter_vertices_by_height_width_ratio(vertex_candidates, edge_candidates)
     // TODO filter overlapping vertices, filter vertices based on size(?)
+    if (vertex_candidates.length == 0 || edge_candidates.length == 0){
+        return []
+    }
     let graph = utils.vertices_within_distance_of_edge(VERTEX_EDGE_DISTANCE_THRESHOLD, edge_candidates, vertex_candidates)
-    graph = utils.split_edges_with_middle_vertex(graph)
+    // Start of new V2 features
+    let {new_graph, new_edges} = utils.split_edges_with_middle_vertex(graph, edge_candidates)
+    graph = new_graph
+    edge_candidates = new_edges
     let areas: number[] = []
     vertex_candidates.forEach(x => areas.push(x.area()))
     let radius = Math.sqrt(utils.median(areas)) / 2 // not exact but good enough
     utils.edges_incident_to_edges(radius*VERTEX_EDGE_DISTANCE_THRESHOLD, edge_candidates, graph)
+    // End V2
     const graphs = build_graphs_from_map(graph, logs)
     for (const graph of graphs){
         logs?.push(graph.toString())
