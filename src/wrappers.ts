@@ -13,7 +13,7 @@ export class Vertex{
     }
 }
 
-
+/**High-level implementation of a graph. Each edge is defined by its two vertices, and each vertex is defined by ID and coordinates */
 export class Graph{
     edges: {v1: number, v2: number}[]
     private map: Map<Path_Metadata, number>
@@ -51,8 +51,9 @@ export class Graph{
         }
     }
 
-
-    putVertex(vertex: Path_Metadata | Vertex ): number{ // returns -1 if the ID is already being used
+    /** Checks if an equivalent vertex already exists and only adds the vertex if the answer is no.
+    @returns the ID of the vertex or -1 if the specified ID is already in use */
+    putVertex(vertex: Path_Metadata | Vertex ): number{
         if (vertex instanceof Path_Metadata){
             let existing = this.map.get(vertex)
             if (existing === undefined){
@@ -80,7 +81,8 @@ export class Graph{
         }
     }
 
-    // Returns the index of a vertex given its Path_Metadata representation or adds the vertex to the graph, returning the new index
+
+    /**Returns the index of a vertex given its Path_Metadata representation or adds the vertex to the graph (kind of obsolete because putVertex does the same thing)*/
     getOrPutVertex(vertex: Path_Metadata): number{
         const index = this.map.get(vertex)
         if(index)
@@ -90,15 +92,17 @@ export class Graph{
     }
 
 
+    /** Takes the ID of the start and endpoint and adds the edge to the graph, as long as no equivalent edge exists in the graph and the edge is not a self loop */
     putEdge(edge: {v1: number, v2: number}){
         if (edge.v1 == edge.v2) // Self Loop
             return
-        if(this.edges.some(x => {(x.v1 == edge.v1 && x.v2 == edge.v2) || (x.v1 == edge.v2 && x.v2 == edge.v1)})) // equivalent edge already registered
+        if(this.edges.some(x => {return (x.v1 == edge.v1 && x.v2 == edge.v2) || (x.v1 == edge.v2 && x.v2 == edge.v1)})) // equivalent edge already registered
            return
         this.edges.push(edge) 
     }
 
 
+    /** Returns a n x n matrix whereas n is the number of vertices in the graph. A 1 entry in i,j implies an edge between vertex i and vertex j (IDs sorted in increasing order) */
     toAdjacencyMatrix(){
         let sorted_vertices = [... this.vertices].sort((a,b) => a.id - b.id)
         const n = this.vertices.length
@@ -120,6 +124,7 @@ export class Graph{
     }
     
 
+    /** Returns true if the Graph has at least theshold many edges */
     hasEdges(threshold: number = 1){
         if (this.edges.length < threshold)
             return false
@@ -127,6 +132,7 @@ export class Graph{
     }
 
 
+    /** Returns true if the Graph has at least theshold many vertices */
     hasVertices(threshold: number = 1){
         if(this.vertices.length < threshold)
             return false
@@ -134,6 +140,7 @@ export class Graph{
     }
 
     
+    /** Performs DFS find all connected components and returns a list containing a graph for each connected component.*/
     split_disconnected_components(): Graph[]{
         const visited : Set<Vertex | {v1: number, v2: number}> = new Set<Vertex | {v1: number, v2: number}>()
         const graphs : Graph[] = []
@@ -171,7 +178,7 @@ export class Graph{
                 graphs.push(graph)
             }
             else{
-                console.log("Rejected graph with "+graph.edges.length+" edges and "+ graph.vertices.length+" vertices.")
+                //console.log("Rejected graph with "+graph.edges.length+" edges and "+ graph.vertices.length+" vertices.")
             }
 
         }
@@ -188,7 +195,7 @@ export class Graph{
     }
 }
 
-
+/** Currently used for edge candidates */
 export class Stroke{
     type: "line" | "curve"
     stroke: mupdf.StrokeState
@@ -218,7 +225,8 @@ export class Stroke{
     }
 
 
-    traverse(from: Stroke | Path_Metadata){ //given an endpoint of the stroke, gives back the other end
+    /**Given an endpoint of the stroke, returns the other end */
+    traverse(from: Stroke | Path_Metadata){
         if (this.start_incident == from)
             return this.end_incident
         else if(this.end_incident == from)
@@ -227,6 +235,7 @@ export class Stroke{
     }
 
 
+    /** Currently not in use, and not really usable as it is now */
     split_in_pnt(x: number, y: number, t: number): {e1: Stroke, e2: Stroke}{
         if (this.type === "curve"){
             throw new Error("No implementation for splitting curve type edge")
@@ -246,6 +255,9 @@ export class Stroke{
         return "Type: " + this.type + " Start: " + this.start.x + " "+ this.start.y + " End: " + this.end.x + " " + this.end.y
     }
 
+
+    /** Splits the edge into multiple sample points in same-length increments (the last two points might be apart up to twice as far)
+     @input resolution specifies the number of sample points that should be created */
     toPolyLine(resoltuion: number): {x: number, y: number}[]{
         let increment = 1 / resoltuion
         var t = increment
@@ -258,7 +270,8 @@ export class Stroke{
         return points
     }
 
-    // For t=0, returns start point, for t=1 returns end point. For anything inbetween, it returns the respective point on the line
+
+    /** Interprets the Stroke as a trajectory function f(t) where f(0) is the start point and f(1) is the end point. Given t, it returns the corresponding point on the Stroke */
     walk_along_edge(t: number): {x: number, y: number} {
         if (t > 1 || t < 0) // Will probably remove this check because it seems like an easy way to ''extend'' the line in a certain direction
             throw new Error("Illegal argument for t")
@@ -289,6 +302,7 @@ export class Stroke{
 }
 
 
+/** Currently used ambiguously as either a single Path object, which is part of a Drawing, or as a vertex candidate */
 export class Path_Metadata{
     path: mupdf.Path
     bounds: mupdf.Rect

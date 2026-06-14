@@ -2,13 +2,15 @@ import { Graph, Vertex } from "./wrappers.js";
 import fs from "fs"
 import path from "path"
 import { execute_file } from "./pipeline.js";
-import mupdf from "mupdf"
+import { exportGraph, exportGraphAsAdjacency } from "./pdf_extraction.js";
 
 const benchmark_directory = "test_files/benchmark/TP"
 const result_directory = "test_files/benchmark/V2/"
 const matched_flag = "Matched with a graph"
 const TP_but_not_A_grade = "test_files/benchmark/TP_but_not_A_grade" // obsolete
 
+
+/**Used to parse the reference graphs for a given file, then splits each graph into its connected components (at least 5 vertices, 4 edges) */
 function parse_graphs_from_gvs(gv_files: string[], logs? : string[]): Graph[]{
     const graphs : Graph[] = []
     for (const gv_file of gv_files){
@@ -44,6 +46,8 @@ function parse_graphs_from_gvs(gv_files: string[], logs? : string[]): Graph[]{
 }
 
 // Checks if the two graphs have the same number of edges and vertices
+/**Checks if the two graphs (usually one from thte model, one reference graph) have the same number of edges and returns the corresponding truth value.
+If they could be matched, it flags both Graphs as such. */
 function match_graphs(g1: Graph, g2: Graph): boolean{
     var res: boolean = true
     if(g1.edges.length != g2.edges.length){
@@ -60,7 +64,7 @@ function match_graphs(g1: Graph, g2: Graph): boolean{
     return res
 }
 
-// Counts how many graphs could be matched to each other
+/**The access point to the benchmark */
 export function benchmark(){
     var logs: string[] = ["Logs of the most recent benchmark\n"]
     const pdf_files = fs.readdirSync(benchmark_directory).filter(file => file.endsWith(".pdf"))
@@ -91,8 +95,8 @@ export function benchmark(){
             let graph = graphs[i]!
             graph.metadata.push(file)
             logs.push(graph.toString())
-            exportGraph(graph, result_directory+file_name+"_"+i+".gv")
-            exportGraphAsAdjacency(graph, result_directory+file_name+"_"+i+"_adj.txt")
+            exportGraph(graph, result_directory+file_name+"_"+i)
+            exportGraphAsAdjacency(graph, result_directory+file_name+"_"+i+"_adj")
         }
     }
     logs.push("Identified "+success + " out of "+ total_ref + " true positives and found a total of "+total+" graphs.")
@@ -102,31 +106,14 @@ export function benchmark(){
 }
 
 
+/** A handy tool to turn a lot of .gv files into an adjacency list format, as that can be uploaded to HoG for visualization.*/
 function produceAdjacencyListFromGvs(){
     const gv_files = fs.readdirSync(TP_but_not_A_grade).filter(file => file.endsWith(".gv"))
     const reference_graphs = parse_graphs_from_gvs(gv_files)
     for (const ref of reference_graphs){
         const name = ref.metadata[0]!
-        exportGraphAsAdjacency(ref, TP_but_not_A_grade+"/"+path.parse(name).name+ ".txt")
+        exportGraphAsAdjacency(ref, TP_but_not_A_grade+"/"+path.parse(name).name)
     }
-}
-
-
-function exportGraph(graph: Graph, name: string){
-    fs.writeFileSync(name, graph.toString())
-}
-
-
-function exportGraphAsAdjacency(graph: Graph, name: string){
-    let adjacency = graph.toAdjacencyMatrix()
-    let asString : string = ""
-    for (const row of adjacency){
-        for (const entry of row){
-            asString += (entry + " ")
-        }
-        asString +="\n"
-    }
-    fs.writeFileSync(name, asString)
 }
 
 benchmark()

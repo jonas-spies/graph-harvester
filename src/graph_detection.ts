@@ -1,6 +1,5 @@
 import {Drawing, Path_Metadata, Stroke, Graph} from "./wrappers.js"
 import * as utils from "./geometry_utils.js"
-import * as mupdf from "mupdf"
 
 // Only keep vertices with a ratio between that and its inverse
 const VERTEX_HEIGHT_WIDTH_RATIO_THRESHOLD = 0.5
@@ -8,6 +7,7 @@ const VERTEX_HEIGHT_WIDTH_RATIO_THRESHOLD = 0.5
 const VERTEX_EDGE_DISTANCE_THRESHOLD = 1.3
 
 
+/** Uses VERTEX_HEIGHT_WIDTH_RATIO_THRESHOLD to turn all vertex candidates that are not 'square-like' enough into edge candidates */
 function filter_vertices_by_height_width_ratio(vertex_candidates: Path_Metadata[], edge_candidates: Stroke[]){
     const n = vertex_candidates.length
     for (var i = 0; i < n; i++){
@@ -23,24 +23,20 @@ function filter_vertices_by_height_width_ratio(vertex_candidates: Path_Metadata[
 }
 
 
+/** */
 function filter_vertices_if_incident(vertex_candidates: Path_Metadata[], edge_candidates: Stroke[]){ //TODO: if two vertices are incident, one is likely not a vertex
 
 }
 
 
+/** */
 function filter_vertices_by_mean_size(vertex_candidates: Path_Metadata[], edge_candidates: Stroke[]){//TODO: put vertices into clusters by mean size, then only take largest cluster
 
 }
 
 
-    // Logs for debugging
-    /*logs?.push("GRAPH: \n")
-    map.forEach( (edges: Stroke[], vertex: Path_Metadata) => {
-        logs?.push("Vertex: " + vertex.toString() +" with following edges\n")
-        for (const edge of edges){
-            logs?.push("Edge: " + edge.toString() +"\n")
-        }
-    } )*/
+/** Given a map that links each vertex to a list of incident edges, where each edge has a pointer to whatever its start or endpoint is icndient to, performs DFS to find each connected component and turn it into a graph.
+ * Rejects graphs with less than 5 vertices and less than 4 edges*/
 function build_graphs_from_map(map: Map<Path_Metadata, Stroke[]>, logs?: string[]): Graph[]{
     const visited : Set<Path_Metadata | Stroke> = new Set<Path_Metadata | Stroke>()
     const graphs : Graph[] = []
@@ -113,6 +109,7 @@ function build_graphs_from_map(map: Map<Path_Metadata, Stroke[]>, logs?: string[
 }*/
 
 
+/**The access point to graph detection. Takes a drawing and tries to extract a list of graphs from it. */
 export function detect_graphs_from_drawing(drawing : Drawing, logs? : string[]): Graph[]{
     // Finding Candidates
     let vertex_candidates: Path_Metadata[] = drawing.paths.filter(x => x.type == "fill") //Fill objects can only be vertices and should not be taken apart
@@ -124,18 +121,21 @@ export function detect_graphs_from_drawing(drawing : Drawing, logs? : string[]):
         if (res.is_closed)
             vertex_candidates.push(stroke_path)
         else
-            edge_candidates.push(... res.strokes)
+            edge_candidates.push(... res.strokes) //TODO: stroke circles land here!
     }
     filter_vertices_by_height_width_ratio(vertex_candidates, edge_candidates)
     // TODO filter overlapping vertices, filter vertices based on size(?)
     if (vertex_candidates.length == 0 || edge_candidates.length == 0){
+        //console.log("Found an empty drawing. Vertices: " + vertex_candidates.length + " Edges: "+ edge_candidates.length)
         return []
     }
+    //console.log("inititial vertex candidates: "+vertex_candidates.length + " edge candidates: "+edge_candidates.length)
     let graph = utils.vertices_within_distance_of_edge(VERTEX_EDGE_DISTANCE_THRESHOLD, edge_candidates, vertex_candidates)
     // Start of new V2 features
     let {new_graph, new_edges} = utils.split_edges_with_middle_vertex(graph, edge_candidates)
     graph = new_graph
     edge_candidates = new_edges
+    //console.log("filtered number of edge candidates: "+edge_candidates.length)
     let areas: number[] = []
     vertex_candidates.forEach(x => areas.push(x.area()))
     let radius = Math.sqrt(utils.median(areas)) / 2 // not exact but good enough

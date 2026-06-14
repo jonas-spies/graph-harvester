@@ -3,11 +3,12 @@ import RBush from "rbush"
 import KDBush from 'kdbush'
 import * as mupdf from "mupdf"
 
-// Approximate every bezier curve by 20 straight line segments
-const STROKE_APPROXIMATION_RESOLUTION = 20
+// Approximate every bezier curve by 30 straight line segments
+const STROKE_APPROXIMATION_RESOLUTION = 30
 
-
-export function merge_bounding_boxes(drawings: Drawing[]){
+/**Merges drawings by overlapping bounding boxes
+ * @returns a list of Drawings, so that each element exclusively contains the Path objects of one or more original Drawing.*/
+export function merge_bounding_boxes(drawings: Drawing[]): Drawing[]{
     const tree = new RBush<Drawing>()
     var result : Drawing[] = []
     var already_used: Map<Drawing, number> = new Map
@@ -38,7 +39,8 @@ export function merge_bounding_boxes(drawings: Drawing[]){
 }
 
 
-export function transform_point(ctm: mupdf.Matrix, x: number, y: number){
+/**Applies a matrix transformation on the point, returning its new coordinates*/
+export function transform_point(ctm: mupdf.Matrix, x: number, y: number): {x: number, y: number}{
     return {
         x: ctm[0] * x + ctm[2] * y + ctm[4],
         y: ctm[1] * x + ctm[3] * y + ctm[5]
@@ -46,6 +48,7 @@ export function transform_point(ctm: mupdf.Matrix, x: number, y: number){
 }
 
 
+/** Takes a path object and returns a list of all its strokes, as well as a boolean indicating if the path formed a closed loop */
 export function break_path_into_strokes(stroke_path: Path_Metadata, logs?: string[]): {strokes: Stroke[], is_closed: boolean} {
         var stroke_segments: Stroke[] = []
         var is_closed = false
@@ -95,6 +98,7 @@ export function break_path_into_strokes(stroke_path: Path_Metadata, logs?: strin
 }
 
 
+/**Takes a bounding box array [xmin, ymin, xmax, ymax] and expands it by the factor into every direction, originating from the center */
 export function scale_bb_by_factor(bb: mupdf.Rect, factor: number): mupdf.Rect{
     var width = (bb[2] - bb[0]) * factor
     var height = (bb[3] - bb[1]) * factor
@@ -106,6 +110,7 @@ export function scale_bb_by_factor(bb: mupdf.Rect, factor: number): mupdf.Rect{
     var maxY = center_y + (height / 2)
     return [minX, minY, maxX, maxY] as mupdf.Rect
 }
+
 
 // OLD VERSION
 /*export function vertices_within_distance_of_edge(distance: number, edges: Stroke[], vertices: Path_Metadata[]): Map<Path_Metadata, Stroke[]>{
@@ -138,7 +143,14 @@ export function scale_bb_by_factor(bb: mupdf.Rect, factor: number): mupdf.Rect{
     }
     return map
 }*/
+
+
 // NEW VERSION
+/**Breaks up each edge into a constant number of sample points, then checks for each vertex what sample points lie within range of its bounding box.
+ * @constant STROKE_APPROXIMATION_RESOLUTION specifies how many sample points will be made for each edge
+ * @input distance: a factor by which a vertex's bounding box is scaled before checking if any sample points lie in that box
+ * @input edges: each edge is modified so that its .start or .end are linked to up to one vertex incident to its respective endpoint
+ * @output A map that returns for each vertex a list of incident edges. This is the only way in which the relation between vertices lying between two endpoints of an edge is stored */
 export function vertices_within_distance_of_edge(distance: number, edges: Stroke[], vertices: Path_Metadata[]): Map<Path_Metadata, Stroke[]>{
     const map = new Map<Path_Metadata, Stroke[]>()
     const point_to_edge: Stroke[] = [] // using this, index of point leads to corresponding edge
@@ -202,6 +214,8 @@ export function vertices_within_distance_of_edge(distance: number, edges: Stroke
     return map
 }
 
+
+/**Auxiliary function which adds an edge to the list of incident edges of a given vertex, while ensuring the vertex and its list are registered in the map*/
 function add_to_graph_map(graph: Map<Path_Metadata, Stroke[]>, vertex: Path_Metadata, edge: Stroke){
     let list = graph.get(vertex)
     if (!list){
@@ -212,6 +226,9 @@ function add_to_graph_map(graph: Map<Path_Metadata, Stroke[]>, vertex: Path_Meta
 }
 
 
+/**Determines for each edge how many vertices lie between its two endpoints, approximates its coordinates on the line using STROKE_APPROXIMATION_RESOLUTION, and splits each edge along these points.
+ * Then returns a new map and edge list based on the new edges, without modifying the input objects.
+ * @warning the new map currently throws away isolated vertices, without turning them into edge candidates. */
 export function split_edges_with_middle_vertex(graph: Map<Path_Metadata, Stroke[]>, edges: Stroke[]): {new_graph: Map<Path_Metadata, Stroke[]>, new_edges: Stroke[]} {
     const edge_to_vertices = new Map<Stroke, Path_Metadata[]>()
     const new_graph = new Map<Path_Metadata, Stroke[]>()
@@ -289,6 +306,7 @@ export function split_edges_with_middle_vertex(graph: Map<Path_Metadata, Stroke[
 }
 
 
+/**Currently returns true if two StrokeState objects are equivalent, else false */
 function stroke_similarity(a: mupdf.StrokeState, b: mupdf.StrokeState){ //TODO compares two StrokeStyles and gives a similarity score in the end
     return (
         a.getLineWidth === b.getLineWidth &&
@@ -298,6 +316,7 @@ function stroke_similarity(a: mupdf.StrokeState, b: mupdf.StrokeState){ //TODO c
 }
 
 
+/** Returns the median of a list of numbers */
 export function median(values: number[]): number {
     if (values.length === 0)
         throw new Error("Cannot compute median of empty array")
@@ -306,7 +325,10 @@ export function median(values: number[]): number {
     return sorted[mid]!
 }
 
-// Ideally used on the set of all orphans and half orphans when some vertices have already been identified. From there, taking the median radius of vertices times a multiplier gives a decent distance threshold
+
+/** Checks for each edge if it is an orphan or half orphan, then checks if any endpoints of another edge lie within range.
+ * If exactly one edge is incident, this will become its neighbor. If two or more edges are incident, this will be interpreted as an implied vertex.
+ * @input distance: distance in pixels that two endpoints can be apart to still be considered incident to each other. Currently chosen as the median radius of all vertex candidates. */
 export function edges_incident_to_edges(distance: number, edges: Stroke[], graph: Map<Path_Metadata, Stroke[]>){ // TODO? filter based on StrokeStyle for the most likely candidate
     const n = edges.length
     const points = [... edges.map(x => x.start), ... edges.map(x => x.end)] // First n indices are of type start, indices from n, ..., 2n-1 are of type end
@@ -328,7 +350,26 @@ export function edges_incident_to_edges(distance: number, edges: Stroke[], graph
         }
         if ( (start && edge.start_incident) || (!start && edge.end_incident))
             continue            
-        const indices = tree.within(point.x, point.y, distance).filter(x => (x != i) && (x != i + n) && (x != i - n)) // don't include points from the same edge
+        var indices = tree.within(point.x, point.y, distance)
+        indices = indices.filter( (x, i) => { // FILTER: 1) endpoints that are not orphaned. 2) endpoints that are incident to their other end.
+            let edge = edges[x < n? x : x-n]
+            if (edge)
+                return false
+            for (var j = 0; j < indices.length; j++){
+                if (j == i)
+                    continue
+                let other = indices[j]!
+                if (x == other || x == other + n || x == other - n){
+                    return false
+                }      
+            }
+            return true
+        })
+        /*console.log("Start Point: "+ point.x + ", "+ point.y)
+        for (const index of indices){
+            let next_point = points[index]!
+            console.log("Incident point: "+next_point.x + ", "+ next_point.y)
+        }*/
         switch(indices.length){
             case 0: // edge stays an orphan
                 break
@@ -342,6 +383,7 @@ export function edges_incident_to_edges(distance: number, edges: Stroke[], graph
                     edge.end_incident = other_edge
                 break
             default: // more than 1 indicates an implied vertex
+                console.log("Found implied vertex: x ="+ point.x + "y ="+point.y)
                 let vertex = new Path_Metadata(new mupdf.Path(), [point.x - (distance/2), point.y -(distance/2), point.x + (distance/2), point.y + (distance/2)], mupdf.Matrix.identity, "fill")
                 let edgelist: Stroke[] = [edge]
                 for (const index of indices) {
