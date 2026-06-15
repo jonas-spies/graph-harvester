@@ -132,14 +132,14 @@ export function detect_graphs_from_drawing(drawing : Drawing, logs? : string[]):
     //console.log("inititial vertex candidates: "+vertex_candidates.length + " edge candidates: "+edge_candidates.length)
     let graph = utils.vertices_within_distance_of_edge(VERTEX_EDGE_DISTANCE_THRESHOLD, edge_candidates, vertex_candidates)
     // Start of new V2 features
+    let areas: number[] = []
+    vertex_candidates.forEach(x => areas.push(x.area()))
+    let radius = Math.sqrt(utils.median(areas)) / 2 // not exact but good enough
+    utils.edges_incident_to_edges(radius*VERTEX_EDGE_DISTANCE_THRESHOLD, edge_candidates, graph, logs)
     let {new_graph, new_edges} = utils.split_edges_with_middle_vertex(graph, edge_candidates)
     graph = new_graph
     edge_candidates = new_edges
     //console.log("filtered number of edge candidates: "+edge_candidates.length)
-    let areas: number[] = []
-    vertex_candidates.forEach(x => areas.push(x.area()))
-    let radius = Math.sqrt(utils.median(areas)) / 2 // not exact but good enough
-    utils.edges_incident_to_edges(radius*VERTEX_EDGE_DISTANCE_THRESHOLD, edge_candidates, graph)
     // End V2
     const graphs = build_graphs_from_map(graph, logs)
     for (const graph of graphs){
