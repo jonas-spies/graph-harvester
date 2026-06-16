@@ -359,10 +359,11 @@ export function median(values: number[]): number {
 }
 
 
-/** Checks for each edge if it is an orphan or half orphan, then checks if any endpoints of another edge lie within range.
+/** Checks for each edge if it is an orphan or half orphan, then checks if any endpoints of another edge lie within range.s
  * If exactly one edge is incident, this will become its neighbor. If two or more edges are incident, this will be interpreted as an implied vertex.
  * @input distance: distance in pixels that two endpoints can be apart to still be considered incident to each other. Currently chosen as the median radius of all vertex candidates. 
- * @TODO bugfixes: does not rescue all orphans currently */
+ * @TODO bugfixes: does not rescue all orphans currently
+ * @TODO make it more robust in cases where a neighboring edge is actually already incident to a vertex or edge at that endpoint (currently would drop that incidence) */
 export function edges_incident_to_edges(distance: number, edges: Stroke[], graph: Map<Path_Metadata, Stroke[]>, logs? : string[]){ // TODO? filter based on StrokeStyle for the most likely candidate
     const n = edges.length
     const points = [... edges.map(x => x.start), ... edges.map(x => x.end)] // First n indices are of type start, indices from n, ..., 2n-1 are of type end
@@ -370,7 +371,7 @@ export function edges_incident_to_edges(distance: number, edges: Stroke[], graph
     if(logs){
         logs?.push("Rescuing orphans...\n")
         for (const edge of edges){
-            logs?.push("Edge "+ edge.start.x + ", "+edge.start.y + " | "+ edge.end.x + ", "+ edge.end.y + " BEFORE [Start, End]: "+ (edge.start_incident? "true" : "false") + (edge.end_incident? " true" : " false") +"\n")
+            logs?.push("Edge [("+ edge.start.x + ", "+edge.start.y + "),( "+ edge.end.x + ", "+ edge.end.y + ")] BEFORE [Start, End]: "+ (edge.start_incident? "true" : "false") + (edge.end_incident? " true" : " false") +"\n")
         }
     }
     for (const {x,y} of points)
@@ -401,7 +402,6 @@ export function edges_incident_to_edges(distance: number, edges: Stroke[], graph
         indices = indices.filter( (value, key) => { // FILTER: 1) endpoints that are not orphaned. 2) endpoints that are incident to their other end.
             if (value == i || value == i + n || value == i - n) // Self hit
                 return false
-            logs?.push("Value: "+value + " OG Edge: "+i + " n: "+n +"\n")
             for (var j = 0; j < indices.length; j++){
                 if (j == key)
                     continue
@@ -423,12 +423,24 @@ export function edges_incident_to_edges(distance: number, edges: Stroke[], graph
                 break
             case 1: // edge is continued
                 let index = indices[0]!
-                const other_edge = index < n? (edges[index]!) : (edges[index - n]!)
+                const other_start = (index < n)
+                const other_edge = other_start? (edges[index]!) : (edges[index - n]!)
                 //TODO: maybe infer a vertex if StrokeStyle differs too much
-                if (start)
+                if (start){
                     edge.start_incident = other_edge
-                else
+                    if (other_start)
+                        other_edge.start_incident = edge
+                    else
+                        other_edge.end_incident = edge
+                }
+                    
+                else{
                     edge.end_incident = other_edge
+                    if (other_start)
+                        other_edge.start_incident = edge
+                    else
+                        other_edge.end_incident = edge
+                }
                 break
             default: // more than 1 indicates an implied vertex
                 logs?.push("Found implied vertex: x ="+ point.x + "y ="+point.y+"\n")
@@ -451,7 +463,7 @@ export function edges_incident_to_edges(distance: number, edges: Stroke[], graph
     }
     if (logs){
         for (const edge of edges){
-            logs?.push("Edge "+ edge.start.x + ", "+edge.start.y + " | "+ edge.end.x + ", "+ edge.end.y + " AFTER [Start, End]: "+ (edge.start_incident? "true" : "false") + (edge.end_incident? " true" : " false") +"\n")
+            logs?.push("Edge [("+ edge.start.x + ", "+edge.start.y + "),( "+ edge.end.x + ", "+ edge.end.y + ")] AFTER [Start, End]: "+ (edge.start_incident? "true" : "false") + (edge.end_incident? " true" : " false") +"\n")
         }
     }
 }
