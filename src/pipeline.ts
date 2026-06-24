@@ -2,7 +2,7 @@ import * as mupdf from 'mupdf'
 import * as fs from "node:fs"
 import {detect_graphs_from_drawing} from "./graph_detection.js"
 import * as pdf_extraction from "./pdf_extraction.js"
-import { Graph } from './wrappers.js'
+import { Graph, type DetectedGraph } from './wrappers.js'
 
 
 export function execute(){
@@ -32,9 +32,9 @@ export function execute(){
 }
 
 
-export function execute_file(file: string | ArrayBuffer | mupdf.Buffer | Uint8Array<ArrayBufferLike> | mupdf.Stream, logs?: string[], to_png? :string){
+export function execute_file(file: string | ArrayBuffer | mupdf.Buffer | Uint8Array<ArrayBufferLike> | mupdf.Stream, params?:{logs?: string[], to_png? :string}){
     let doc = mupdf.PDFDocument.openDocument(file)
-    var graphs: Graph[] = []
+    let detected_graphs: DetectedGraph[] = []
     for  (var i = 0; i< doc.countPages(); i++){
         var page = doc.loadPage(i)
         let paths = pdf_extraction.get_paths_from_page(page)
@@ -42,16 +42,16 @@ export function execute_file(file: string | ArrayBuffer | mupdf.Buffer | Uint8Ar
         for (var j =0; j<drawings.length; j++){
             var drawing = drawings[j]
             if (drawing !== undefined){
-                let new_graphs = detect_graphs_from_drawing(drawing, logs)
-                if(to_png){
-                    pdf_extraction.export_drawing(drawing, to_png+"p"+(i+1)+"d"+(j+1))
+                let new_graphs = detect_graphs_from_drawing(drawing, params?.logs)
+                if(params?.to_png){
+                    pdf_extraction.export_drawing(drawing, params?.to_png+"p"+(i+1)+"d"+(j+1))
                 }
                 for (var k = 0; k<new_graphs.length; k++){
                     new_graphs[k]!.metadata.push("Page " +(i+1) + ", Drawing " + (j+1) + ", Nr " + k)
                 }
-                graphs.push(...new_graphs)
+                detected_graphs.push(Graph.toDetectedGraph(new_graphs, drawing))
             }      
         }
     }
-    return graphs
+    return detected_graphs
 }

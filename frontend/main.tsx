@@ -12,9 +12,9 @@ ReactDOM.createRoot(document.getElementById("root")!).render(
             callback: async (file) => {
                 const logs : string[] = ["Initializing logs"]    
                 const buffer = await file.arrayBuffer()
-                execute_file(buffer,logs)
+                const detected_graphs = execute_file(buffer,{logs})
                 console.log(logs.join("\n"))
-                return [];
+                return detected_graphs
             },
         }}
     />

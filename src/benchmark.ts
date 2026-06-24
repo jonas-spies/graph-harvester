@@ -32,7 +32,7 @@ function parse_graphs_from_gvs(gv_files: string[], logs? : string[]): Graph[]{
         for (const line of lines){
             let edge = line.match(edgeRegex)
                 if (edge){
-                    graph.putEdge({v1: Number(edge[1]), v2: Number(edge[2])})
+                    graph.putEdge({v1_id: Number(edge[1]), v2_id: Number(edge[2])})
                 }
         }
         let subgraphs = graph.split_disconnected_components()
@@ -66,7 +66,7 @@ function match_graphs(g1: Graph, g2: Graph): boolean{
 
 /**The access point to the benchmark */
 export function benchmark(){
-    var logs: string[] = ["Logs of the most recent benchmark\n"]
+    const logs: string[] = ["Logs of the most recent benchmark\n"]
     const pdf_files = fs.readdirSync(benchmark_directory).filter(file => file.endsWith(".pdf"))
     const gv_files = fs.readdirSync(benchmark_directory).filter(file => file.endsWith(".gv"))
     var success  = 0
@@ -76,7 +76,11 @@ export function benchmark(){
         logs.push("Processing "+ file)
         const full_path = path.join(benchmark_directory, file)
         const file_name = path.parse(file).name
-        let graphs = execute_file(fs.readFileSync(full_path), undefined, result_directory+file_name+"_")
+        const detected_graphs = execute_file(fs.readFileSync(full_path), {to_png: (result_directory+file_name+"_")})
+        const graphs: Graph[] = []
+        for (const detected_graph of detected_graphs){
+                graphs.push(...detected_graph.connected_components)
+        }
         total += graphs.length
         const corresponding_gv_files = gv_files.filter(file => file.startsWith(file_name + "_"))
         const reference_graphs = parse_graphs_from_gvs(corresponding_gv_files)

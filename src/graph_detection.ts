@@ -55,9 +55,11 @@ function build_graphs_from_map(map: Map<Path_Metadata, Stroke[]>, logs?: string[
             if (edge){
                 var previous: Path_Metadata | Stroke | undefined = next // 0
                 var current: Path_Metadata | Stroke | undefined = edge // 1
+                let path : Stroke[] = []
                 do { // Traverse Stroke, until a dead end or a Vertex is found
                     if (!visited.has(current)) // Adds 1 in first iteration, 2 in all other
                         visited.add(current)
+                    path.push(current)
                     previous = current.traverse(previous) // previous 0 => 2
                     var aux: Path_Metadata | Stroke | undefined = previous // aux => 2
                     previous = current // previous 2 => 1
@@ -67,7 +69,7 @@ function build_graphs_from_map(map: Map<Path_Metadata, Stroke[]>, logs?: string[
                     if (!visited.has(current))
                         visited.add(current)
                     graph.putVertex(current)
-                    graph.putEdge({v1: graph.getOrPutVertex(next), v2: graph.getOrPutVertex(current)})
+                    graph.putEdge({v1_id: graph.getOrPutVertex(next), v2_id: graph.getOrPutVertex(current), path})
                     vertices.push(next)
                     vertices.push(current)
                 }
@@ -118,8 +120,11 @@ export function detect_graphs_from_drawing(drawing : Drawing, logs? : string[]):
     //logs?.push("Initializing Graph Detection for new Drawing...\n")
     for (var stroke_path of stroke_paths){
         let res = utils.break_path_into_strokes(stroke_path)
-        if (res.is_closed)
+        if (res.is_closed){
+            stroke_path.shape = res.shape
             vertex_candidates.push(stroke_path)
+        }
+            
         else
             edge_candidates.push(... res.strokes) //TODO: stroke circles land here!
     }

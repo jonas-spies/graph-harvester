@@ -50,9 +50,10 @@ export function transform_point(ctm: mupdf.Matrix, x: number, y: number): {x: nu
 
 /** Takes a path object and returns a list of all its strokes, as well as a boolean indicating if the path formed a closed loop
 @warning if there is even just a fraction of a pixel between the start and endpoint, it won't be considered a closed loop*/
-export function break_path_into_strokes(stroke_path: Path_Metadata, logs?: string[]): {strokes: Stroke[], is_closed: boolean} {
+export function break_path_into_strokes(stroke_path: Path_Metadata, logs?: string[]): {strokes: Stroke[], is_closed: boolean, shape: "circle" | "rectangle" | "path"} {
         var stroke_segments: Stroke[] = []
         var is_closed = false
+        var shape: "circle" | "rectangle" | "path" = "rectangle"
         var last: {x: number, y: number} | undefined
         var loop_start: {x: number, y: number} | undefined
         var strokeStyle = stroke_path.stroke
@@ -79,6 +80,8 @@ export function break_path_into_strokes(stroke_path: Path_Metadata, logs?: strin
             curveTo: function (x1:number, y1:number, x2:number, y2:number, x3:number, y3:number) {
                 if (!last) 
                     throw new Error("curveTo without moveTo")
+                if (shape != "circle")
+                    shape = "circle"
                 var p1 = transform_point(ctm, x1, y1)
                 var p2 = transform_point(ctm, x2, y2)
                 var p3 = transform_point(ctm, x3, y3)
@@ -97,7 +100,9 @@ export function break_path_into_strokes(stroke_path: Path_Metadata, logs?: strin
         stroke_path.path.walk(path_walker)
         if (loop_start && last && loop_start.x == last.x && loop_start.y == last.y)
             is_closed = true
-        return {strokes: stroke_segments, is_closed: is_closed}
+        if (!is_closed)
+            shape = "path"
+        return {strokes: stroke_segments, is_closed: is_closed, shape: shape}
 }
 
 
@@ -444,7 +449,7 @@ export function edges_incident_to_edges(distance: number, edges: Stroke[], graph
                 break
             default: // more than 1 indicates an implied vertex
                 logs?.push("Found implied vertex: x ="+ point.x + "y ="+point.y+"\n")
-                let vertex = new Path_Metadata(new mupdf.Path(), [point.x - (distance/2), point.y -(distance/2), point.x + (distance/2), point.y + (distance/2)], mupdf.Matrix.identity, "fill")
+                let vertex = Path_Metadata.default(point, distance)
                 let edgelist: Stroke[] = [edge]
                 for (const index of indices) {
                     const other_edge = index < n? (edges[index]!) : (edges[index - n]!)
@@ -466,4 +471,14 @@ export function edges_incident_to_edges(distance: number, edges: Stroke[], graph
             logs?.push("Edge [("+ edge.start.x + ", "+edge.start.y + "),( "+ edge.end.x + ", "+ edge.end.y + ")] AFTER [Start, End]: "+ (edge.start_incident? "true" : "false") + (edge.end_incident? " true" : " false") +"\n")
         }
     }
+}
+
+
+export function pngBytesToBase64(bytes: Uint8Array): string {
+  let binary = "";
+
+  for (let i = 0; i < bytes.length; i++) {
+    binary += String.fromCharCode(bytes[i]!);
+  }
+  return btoa(binary);
 }
