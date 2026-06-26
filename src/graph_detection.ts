@@ -5,17 +5,36 @@ import * as utils from "./geometry_utils.js"
 const VERTEX_HEIGHT_WIDTH_RATIO_THRESHOLD = 0.5
 // Only consider edges connected to a vertex, if the edge overlaps the vertices bounding box, scaled by this
 const VERTEX_EDGE_DISTANCE_THRESHOLD = 1.3
+// Filter vertices that take up 25% or more of the drawing's bounding box
+const DRAWING_AREA_THRESHOLD = 0.2
 
 
-/** Uses VERTEX_HEIGHT_WIDTH_RATIO_THRESHOLD to turn all vertex candidates that are not 'square-like' enough into edge candidates */
-function filter_vertices_by_height_width_ratio(vertex_candidates: Path_Metadata[], edge_candidates: Stroke[]){
+/** Uses various checks to turn all vertex candidates that fail one of them into edge candidates
+ * @CHECK Vertices must be somewhat shaped like a square (height / width ratio)
+ * @CHECK Vertices must be somewhat small compared to the overall drawings
+ */
+function filter_vertices(vertex_candidates: Path_Metadata[], edge_candidates: Stroke[], params: {height_width: boolean, drawing_area:number}){
     const n = vertex_candidates.length
     for (var i = 0; i < n; i++){
         let vertex = vertex_candidates.shift()
+        var is_good = true
         if (!vertex)
             throw new Error("illegal array length")
-        const ratio = vertex.height_width_ratio()
-        if ((ratio > VERTEX_HEIGHT_WIDTH_RATIO_THRESHOLD && ratio < (1/VERTEX_HEIGHT_WIDTH_RATIO_THRESHOLD)))
+        // Filter vertices that are not "square-like" enough
+        if(params.height_width){
+            const ratio = vertex.height_width_ratio()
+            if (!(ratio > VERTEX_HEIGHT_WIDTH_RATIO_THRESHOLD && ratio < (1/VERTEX_HEIGHT_WIDTH_RATIO_THRESHOLD)))
+                is_good = false
+        }
+        // Filter Large Vertices
+        if(params.drawing_area != 0  && vertex.area() >= params.drawing_area * DRAWING_AREA_THRESHOLD){
+            is_good = false
+        }
+        // Filter overlapping vertices
+
+
+        // Code that actually does something with the flag
+        if (is_good)
             vertex_candidates.push(vertex)            
         else if (vertex.type =="stroke")
             edge_candidates.push(... utils.break_path_into_strokes(vertex).strokes)   
@@ -81,7 +100,7 @@ function build_graphs_from_map(map: Map<Path_Metadata, Stroke[]>, logs?: string[
                 continue
             }
         }
-        if (graph.hasEdges(4) && graph.hasVertices(5))
+        if (graph.hasEdges(Graph.MINIMUM_EDGES) && graph.hasVertices(Graph.MINIMUM_VERTICES))
             graphs.push(graph)
     }
     return graphs
@@ -128,7 +147,7 @@ export function detect_graphs_from_drawing(drawing : Drawing, logs? : string[]):
         else
             edge_candidates.push(... res.strokes) //TODO: stroke circles land here!
     }
-    filter_vertices_by_height_width_ratio(vertex_candidates, edge_candidates)
+    filter_vertices(vertex_candidates, edge_candidates,{height_width: true, drawing_area: drawing.area()})
     // TODO filter overlapping vertices, filter vertices based on size(?)
     if (vertex_candidates.length == 0 || edge_candidates.length == 0){
         //console.log("Found an empty drawing. Vertices: " + vertex_candidates.length + " Edges: "+ edge_candidates.length)
@@ -137,18 +156,21 @@ export function detect_graphs_from_drawing(drawing : Drawing, logs? : string[]):
     //console.log("inititial vertex candidates: "+vertex_candidates.length + " edge candidates: "+edge_candidates.length)
     let graph = utils.vertices_within_distance_of_edge(VERTEX_EDGE_DISTANCE_THRESHOLD, edge_candidates, vertex_candidates)
     // Start of new V2 features
-    let areas: number[] = []
-    vertex_candidates.forEach(x => areas.push(x.area()))
-    let radius = Math.sqrt(utils.median(areas)) / 2 // not exact but good enough
-    utils.edges_incident_to_edges(radius*VERTEX_EDGE_DISTANCE_THRESHOLD, edge_candidates, graph, logs)
+    utils.edges_incident_to_edges(edge_candidates, graph)
     let {new_graph, new_edges} = utils.split_edges_with_middle_vertex(graph, edge_candidates)
     graph = new_graph
     edge_candidates = new_edges
     //console.log("filtered number of edge candidates: "+edge_candidates.length)
     // End V2
-    const graphs = build_graphs_from_map(graph, logs)
-    for (const graph of graphs){
-        logs?.push(graph.toString())
-    }
+    const graphs = build_graphs_from_map(graph)
+    if (logs)
+        for (const graph of graphs){
+            logs.push(graph.toString())
+            logs.push("G6: "+graph.toGraph6())
+            let adj = graph.toAdjacencyMatrix()
+            logs.push("Adjacency:")
+            for (const row of adj)
+                logs.push(row.toString())
+        }
     return graphs
 }

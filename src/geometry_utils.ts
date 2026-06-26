@@ -1,4 +1,4 @@
-import { Drawing, Path_Metadata, Stroke } from "./wrappers.js"
+import { Drawing, Path_Metadata, Stroke, type Point } from "./wrappers.js"
 import RBush from "rbush"
 import KDBush from 'kdbush'
 import * as mupdf from "mupdf"
@@ -152,6 +152,10 @@ export function scale_bb_by_factor(bb: mupdf.Rect, factor: number): mupdf.Rect{
     return map
 }*/
 
+/**Calculates the euclidean distance between two points without taking the root */
+function euclidean_distance(p1: Point, p2: Point){
+    return ((p1.x - p2.x) * (p1.x - p2.x)) + ((p1.y - p2.y) * (p1.y - p2.y))
+}
 
 // NEW VERSION
 /**Breaks up each edge into a constant number of sample points, then checks for each vertex what sample points lie within range of its bounding box.
@@ -160,11 +164,11 @@ export function scale_bb_by_factor(bb: mupdf.Rect, factor: number): mupdf.Rect{
  * @input edges: each edge is modified so that its .start or .end are linked to up to one vertex incident to its respective endpoint
  * @output A map that returns for each vertex a list of incident edges. This is the only way in which the relation between vertices lying between two endpoints of an edge is stored 
  * @warning If multiple vertices are incident to the same edge endpoint, an arbitrary one will be linked to it, but the others will still be featured in the output map*/
-export function vertices_within_distance_of_edge(distance: number, edges: Stroke[], vertices: Path_Metadata[]): Map<Path_Metadata, Stroke[]>{
+export function vertices_within_distance_of_edge(distance: number, edges: Stroke[], vertices: Path_Metadata[], logs?: string[]): Map<Path_Metadata, Stroke[]>{
     const map = new Map<Path_Metadata, Stroke[]>()
     const point_to_edge: Stroke[] = [] // using this, index of point leads to corresponding edge
     const edge_to_index_range = new Map<Stroke, {first_index : number, last_index: number}>()
-    const points: {x: number, y: number}[] = []
+    const points: Point[] = []
     var index = 0
     for (const edge of edges){
         let edge_points = edge.toPolyLine(STROKE_APPROXIMATION_RESOLUTION)
@@ -181,6 +185,7 @@ export function vertices_within_distance_of_edge(distance: number, edges: Stroke
         tree.add(x,y)
     tree.finish()
     for (const v of vertices){ // O(n)
+        logs?.push("Checking incidence for vertex "+ v)
         let bb = scale_bb_by_factor(v.bounds, distance)
         // Make a query for all points within distance of bounding box of v
         const foundIds = tree.range(bb[0], bb[1], bb[2], bb[3])
@@ -190,15 +195,13 @@ export function vertices_within_distance_of_edge(distance: number, edges: Stroke
             foundEdges.add(edge)
         })
         const incident_edges : Stroke[] = []
-        const x = v.center().x
-        const y = v.center().y
         for (const edge of foundEdges){ // O(m)
+            logs?.push("Found edge: "+edge)
             let {first_index, last_index} = edge_to_index_range.get(edge)!
             var lowest_distance = Infinity
             var lowest_index = first_index
             for (var i = first_index; i <= last_index; i++){ // O(1) => total runtime quadratic
-                let {x: px, y: py} = points[i]!
-                const distance = ((px - x) * (px - x)) + ((py - y) * (py - y)) // euclidean distance without sqrt
+                const distance = euclidean_distance(points[i]!, v.center())
                 if (distance < lowest_distance){
                     lowest_distance = distance
                     lowest_index = i
@@ -224,22 +227,23 @@ export function vertices_within_distance_of_edge(distance: number, edges: Stroke
 }
 
 
-/**Auxiliary function which adds an edge to the list of incident edges of a given vertex, while ensuring the vertex and its list are registered in the map*/
-function add_to_graph_map(graph: Map<Path_Metadata, Stroke[]>, vertex: Path_Metadata, edge: Stroke){
-    let list = graph.get(vertex)
-    if (!list){
-        list = []
-        graph.set(vertex, list)
-    }
-    list.push(edge)
-}
+
 
 
 /**Determines for each edge how many vertices lie between its two endpoints, approximates its coordinates on the line using STROKE_APPROXIMATION_RESOLUTION, and splits each edge along these points.
  * Then returns a new map and edge list based on the new edges, without modifying the input objects.
  * @warning the new map currently throws away isolated vertices and full orphans
- * @TODO make it so rescued full orphans at least make it into the new_edges list */
+ * @TODO make it so rescued full orphans at least make it into the new_edges list*/
 export function split_edges_with_middle_vertex(graph: Map<Path_Metadata, Stroke[]>, edges: Stroke[], logs? : string[]): {new_graph: Map<Path_Metadata, Stroke[]>, new_edges: Stroke[]} {
+    /**Auxiliary function which adds an edge to the list of incident edges of a given vertex, while ensuring the vertex and its list are registered in the map*/
+    function add_to_graph_map(graph: Map<Path_Metadata, Stroke[]>, vertex: Path_Metadata, edge: Stroke){
+        let list = graph.get(vertex)
+        if (!list){
+            list = []
+            graph.set(vertex, list)
+        }
+        list.push(edge)
+    }
     if(logs){
         logs?.push("Splitting edges with middle vertex...\n")
         for (const edge of edges){
@@ -260,6 +264,7 @@ export function split_edges_with_middle_vertex(graph: Map<Path_Metadata, Stroke[
         }
     }
     for (const [edge, vertices] of edge_to_vertices){
+        logs?.push("Next edge: "+ edge.start.x + ", "+ edge.start.y + " | " + edge.end.x + ", " + edge.end.y +"\n")
         const edge_points = edge.toPolyLine(STROKE_APPROXIMATION_RESOLUTION)
         const split_points: {vertex: Path_Metadata, t: number}[] = []
         var start_vertex = edge.start_incident
@@ -271,7 +276,7 @@ export function split_edges_with_middle_vertex(graph: Map<Path_Metadata, Stroke[
             var shortest_index = 0
             if (start_vertex === vertex || end_vertex === vertex)
                 continue
-            for (var i = 0; i < edge_points.length; i++){
+            for (var i = 0; i < edge_points.length; i++){ // determine closest endpoint for vertex
                 let {x: px, y: py} = edge_points[i]!
                 const distance = ((px - x) * (px - x)) + ((py - y) * (py - y)) // euclidean distance without sqrt
                 if (distance < shortest_distance){
@@ -279,7 +284,7 @@ export function split_edges_with_middle_vertex(graph: Map<Path_Metadata, Stroke[
                     shortest_index = i
                 }
             }
-            switch(shortest_index){
+            switch(shortest_index){ // depending on closest endpoint, determine if and where to split, and add to split_points
                 case 0:
                     if (!start_vertex)
                         start_vertex = vertex
@@ -302,6 +307,7 @@ export function split_edges_with_middle_vertex(graph: Map<Path_Metadata, Stroke[
             }
         }
         if (split_points.length == 0){ // keep edge, if there are no middle points
+            logs?.push("Skipping an edge")
             new_edges.push(edge)
             for (const vertex of vertices){
                 add_to_graph_map(new_graph, vertex, edge)
@@ -310,12 +316,11 @@ export function split_edges_with_middle_vertex(graph: Map<Path_Metadata, Stroke[
         }
         split_points.sort( (a,b) => a.t - b.t)
         const breakpoints = [{t: 0, vertex: start_vertex}, ...split_points, {t: 1, vertex: end_vertex}]
-        logs?.push("Next edge: "+ edge.start.x + ", "+ edge.start.y + " | " + edge.end.x + ", " + edge.end.y +"\n")
-        for (const breakpt of breakpoints){
+        for (const breakpt of breakpoints){ // simple logging for debugging purposes
             const vertex = breakpt.vertex? breakpt.vertex.toString() : "undefined"
             logs?.push("t: " + breakpt.t + " Endpt: " + vertex +"\n")
         }
-        for (var i = 0; i < breakpoints.length-1; i++){
+        for (var i = 0; i < breakpoints.length-1; i++){ // Actual splitting
             const left = breakpoints[i]!
             const right = breakpoints[i+1]!
 
@@ -324,13 +329,31 @@ export function split_edges_with_middle_vertex(graph: Map<Path_Metadata, Stroke[
 
             const segment = new Stroke("line", edge.stroke, [p1,p2])
             new_edges.push(segment)
+
+
             if (left.vertex instanceof Path_Metadata){
                 segment.start_incident = left.vertex
                 add_to_graph_map(new_graph, left.vertex, segment)
             }
+            else if (left.vertex instanceof Stroke){
+                segment.start_incident = left.vertex
+                if (euclidean_distance(left.vertex.start, p1) < euclidean_distance(left.vertex.end, p1))
+                    left.vertex.start_incident = segment
+                else
+                    left.vertex.end_incident = segment
+                logs?.push("Encountered Left Vertex as Stroke: "+ left.vertex)
+            }
             if (right.vertex instanceof Path_Metadata){
                 segment.end_incident = right.vertex
                 add_to_graph_map(new_graph, right.vertex, segment)
+            }
+            else if (right.vertex instanceof Stroke){
+                segment.end_incident = right.vertex
+                if (euclidean_distance(right.vertex.start, p2) < euclidean_distance(right.vertex.end, p2))
+                    right.vertex.start_incident = segment
+                else
+                    right.vertex.end_incident = segment
+                logs?.push("Encountered Right Vertex as Stroke: "+right.vertex)
             }
         }
     }
@@ -366,10 +389,8 @@ export function median(values: number[]): number {
 
 /** Checks for each edge if it is an orphan or half orphan, then checks if any endpoints of another edge lie within range.s
  * If exactly one edge is incident, this will become its neighbor. If two or more edges are incident, this will be interpreted as an implied vertex.
- * @input distance: distance in pixels that two endpoints can be apart to still be considered incident to each other. Currently chosen as the median radius of all vertex candidates. 
- * @TODO bugfixes: does not rescue all orphans currently
  * @TODO make it more robust in cases where a neighboring edge is actually already incident to a vertex or edge at that endpoint (currently would drop that incidence) */
-export function edges_incident_to_edges(distance: number, edges: Stroke[], graph: Map<Path_Metadata, Stroke[]>, logs? : string[]){ // TODO? filter based on StrokeStyle for the most likely candidate
+export function edges_incident_to_edges(edges: Stroke[], graph: Map<Path_Metadata, Stroke[]>, logs? : string[]){ // TODO? filter based on StrokeStyle for the most likely candidate
     const n = edges.length
     const points = [... edges.map(x => x.start), ... edges.map(x => x.end)] // First n indices are of type start, indices from n, ..., 2n-1 are of type end
     const tree = new KDBush(2*n)
@@ -398,12 +419,9 @@ export function edges_incident_to_edges(distance: number, edges: Stroke[], graph
             continue
         else
             logs?.push("Trying to rescue an orphan at point "+ point.x + ", "+point.y +" for Edge "+ edge.start.x + ", "+edge.start.y + " | "+ edge.end.x + ", "+ edge.end.y + " [Start, End]: "+ (edge.start_incident? "true" : "false") + (edge.end_incident? " true" : " false") +"\n")          
-        var indices = tree.within(point.x, point.y, distance)
+        var indices = tree.within(point.x, point.y, edge.stroke.getLineWidth())
         logs?.push("Found "+indices.length + " initial hits \n")
-        for (const index of indices){
-            let edge = edges[index < n? index : index -n]!
-            logs?.push("Hit: Edge "+ edge.start.x + ", "+edge.start.y + " | "+ edge.end.x + ", "+ edge.end.y + " [Start, End]: "+ (edge.start_incident? "true" : "false") + (edge.end_incident? " true" : " false") +"\n")
-        }
+
         indices = indices.filter( (value, key) => { // FILTER: 1) endpoints that are not orphaned. 2) endpoints that are incident to their other end.
             if (value == i || value == i + n || value == i - n) // Self hit
                 return false
@@ -418,6 +436,10 @@ export function edges_incident_to_edges(distance: number, edges: Stroke[], graph
             return true
         })
         logs?.push("After filtering, "+indices.length + " hits remain\n")
+        for (const index of indices){
+            let edge = edges[index < n? index : index -n]!
+            logs?.push("Hit: Edge "+ edge.start.x + ", "+edge.start.y + " | "+ edge.end.x + ", "+ edge.end.y + " [Start, End]: "+ (edge.start_incident? "true" : "false") + (edge.end_incident? " true" : " false") +"\n")
+        }
         /*console.log("Start Point: "+ point.x + ", "+ point.y)
         for (const index of indices){
             let next_point = points[index]!
@@ -449,7 +471,7 @@ export function edges_incident_to_edges(distance: number, edges: Stroke[], graph
                 break
             default: // more than 1 indicates an implied vertex
                 logs?.push("Found implied vertex: x ="+ point.x + "y ="+point.y+"\n")
-                let vertex = Path_Metadata.default(point, distance)
+                let vertex = Path_Metadata.default(point, edge.stroke.getLineWidth())
                 let edgelist: Stroke[] = [edge]
                 for (const index of indices) {
                     const other_edge = index < n? (edges[index]!) : (edges[index - n]!)

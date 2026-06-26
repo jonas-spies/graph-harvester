@@ -27,6 +27,7 @@ export class Edge{
     }
 }
 
+
 export class Vertex{
     pos: Point
     id: number
@@ -42,7 +43,7 @@ export class Vertex{
     }
 }
 
-/**High-level implementation of a graph. Each edge is defined by its two vertices, and each vertex is defined by ID and coordinates */
+
 export class Graph{
     edges: Edge []
     private map: Map<Path_Metadata, number>
@@ -50,7 +51,9 @@ export class Graph{
     private smallest_free_id: number
     private used_ids: Set<number>
     metadata: string[]
-
+    // Minimum size a Graph needs to be in order to not be rejected (last model used 4 Edges, 5 Vertices)s
+    static readonly MINIMUM_EDGES = 1
+    static readonly MINIMUM_VERTICES = 2
 
     constructor(vertices?: Path_Metadata[], edges?: {v1: Path_Metadata, v2: Path_Metadata}[]){
         this.map = new Map()
@@ -147,11 +150,11 @@ export class Graph{
         let sorted_vertices = [... this.vertices].sort((a,b) => a.id - b.id)
         const n = this.vertices.length
         const adjacency: number[][] = Array.from({length: n}, () => Array(n).fill(0)) // all entries 0 at first
-        const index_map = new Map<Vertex, number>()
-        sorted_vertices.forEach( (v,i) => index_map.set(v, i))
+        const index_map = new Map<number, number>()
+        sorted_vertices.forEach( (v,i) => index_map.set(v.id, i))
         for (const edge of this.edges){
-            let i1 = index_map.get(edge.v1)!
-            let i2 = index_map.get(edge.v2)!
+            let i1 = index_map.get(edge.v1.id)!
+            let i2 = index_map.get(edge.v2.id)!
             adjacency[i1]![i2] = 1
             adjacency[i2]![i1] = 1
         }
@@ -250,7 +253,7 @@ export class Graph{
                     continue
                 }
             }
-            if (graph.hasEdges(4) && graph.hasVertices(5)){
+            if (graph.hasEdges(Graph.MINIMUM_EDGES) && graph.hasVertices(Graph.MINIMUM_VERTICES)){
                 graphs.push(graph)
             }
             else{
@@ -265,10 +268,48 @@ export class Graph{
     toString(){
         const edges:string[] = []
         const vertices: string[] = []
-        this.edges.forEach(x => {edges.push(x.v1 + " -- " + x.v2)})
+        this.edges.forEach(x => {edges.push(x.v1.id + " -- " + x.v2.id)})
         this.vertices.forEach(x => {vertices.push("v"+x.id + " ["+x.pos.x+", "+x.pos.y+"]")})
         return this.metadata.join("\n")+"\nVertices: "+this.vertices.length+"\n"+vertices.join("\n")+"\nEdges: "+this.edges.length+"\n"+edges.join("\n")
     }
+
+
+    async get_hog_id(){
+        const url = "https://houseofgraphs.org/api/enquiry"
+        const graph6 = this.toGraph6()
+
+        const payload = {
+            "canonicalFormEnquiry": {"canonicalForm": graph6},
+            "formulaEnquiries": [],
+            "graphClassEnquiries": [],
+            "interestingInvariantEnquiries": [],
+            "invariantEnquiries": [],
+            "invariantParityEnquiries": [],
+            "invariantRangeEnquiries": [],
+            "mostPopular": -1,
+            "mostRecent": -1,
+            "subgraphEnquiries": [],
+            "textEnquiries": [],
+        }
+        let response: Response;
+        try{
+            response = await fetch(url, {
+                method: "POST", 
+                headers:{"Content-Type": "application/json"},
+                body: JSON.stringify(payload)
+            })
+        }
+        catch(err){
+            throw new Error("Request to HoG failed")
+        }
+        const data = await response.json()
+        if (data.totalCandidates > 1)
+            throw new Error("WARNING: More than one candidate returned")
+        if (data.totalCandidates === 0)
+            return null
+        return data._embedded.graphSearchModelList[0].graphId;
+    }
+
 
     static toDetectedGraph(graphs: Graph[], drawing: Drawing){
         const n = graphs.length
@@ -284,7 +325,7 @@ export class Graph{
         const hog_ids: number[] = [] // TODO: make a function that asks HOG
         for (const graph of graphs){
             graph6_strings.push(graph.toGraph6())
-            hog_ids.push(0)
+            hog_ids.push(Number(graph.get_hog_id()))
             const next_circles = []
             const next_rects = []
             for (const vertex of graph.vertices){
@@ -587,16 +628,16 @@ export class Drawing{
     }
 }
 
-//COPY PASTED FROM FRONTEND
+//COPY PASTED FROM FRONTEND + keeps a Graph object for every connected component
 export interface DetectedGraph {
-  graph6_strings: string[] // Implemented
-  circles: Circle[][]   // Easy to do
-  rects: Rectangle[][]  // Easy to do
-  lines: Line[] // Probably easy using Stroke
-  beziers: Bezier[] // Probably easy using Stroke
-  boundingBox: readonly [number, number, number, number] // Should be easy to compute
-  caption: string // Implemented (empty string)
-  img: string   // Implemented
+  graph6_strings: string[]
+  circles: Circle[][]   
+  rects: Rectangle[][]  
+  lines: Line[] 
+  beziers: Bezier[] 
+  boundingBox: readonly [number, number, number, number] 
+  caption: string // (currently using empty string)
+  img: string
   hog_ids: number[] // TODO: make a function that asks HOG
   connected_components: Graph[]
 }
