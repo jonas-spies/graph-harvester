@@ -7,7 +7,8 @@ import * as mupdf from "mupdf"
 const STROKE_APPROXIMATION_RESOLUTION = 30
 
 /**Merges drawings by overlapping bounding boxes
- * @returns a list of Drawings, so that each element exclusively contains the Path objects of one or more original Drawing.*/
+ * @returns a list of Drawings, so that each element exclusively contains the Path objects of one or more original Drawing.
+ * @warning may need to be executed repeatedly until convergence*/
 export function merge_bounding_boxes(drawings: Drawing[]): Drawing[]{
     const tree = new RBush<Drawing>()
     var result : Drawing[] = []
@@ -38,6 +39,35 @@ export function merge_bounding_boxes(drawings: Drawing[]): Drawing[]{
     return result
 }
 
+/** Practically a 1:1 copy of merge_bounding_boxes(), just for vertex candidates, and it modifies the passed array instead of returning a new array. 
+ * @warning The function loses the Path information of the merged vertices.  
+ * @warning just like merge_bounding_boxes(), it may need to be exectued repeatedly until convergence*/
+export function merge_overlapping_vertices(vertex_candidates: Path_Metadata[]){
+    const tree = new RBush<Path_Metadata>
+    var result : Path_Metadata[] = []
+    var already_used: Map<Path_Metadata, number> = new Map()
+    tree.load(vertex_candidates)
+    for (const vertex of vertex_candidates){
+        let neighbors = tree.search(vertex).filter(x => !already_used.has(x) && x !== vertex)
+        var index = already_used.get(vertex)
+        if (index === undefined){
+            index = result.length
+            result.push(vertex)
+            already_used.set(vertex, index)
+        }
+        if (neighbors.length > 0){
+            for (var n of neighbors){
+                var cluster = result[index]
+                if(cluster === undefined)
+                    throw new Error("Error: cluster with index"+index+"is out of bounds")
+                let merged = Path_Metadata.merge(cluster, n)
+                result[index] = merged
+                already_used.set(n, index)
+            }
+        }
+    }
+    vertex_candidates = result
+}
 
 /**Applies a matrix transformation on the point, returning its new coordinates*/
 export function transform_point(ctm: mupdf.Matrix, x: number, y: number): {x: number, y: number}{
@@ -120,6 +150,7 @@ export function scale_bb_by_factor(bb: mupdf.Rect, factor: number): mupdf.Rect{
 }
 
 
+
 // OLD VERSION
 /*export function vertices_within_distance_of_edge(distance: number, edges: Stroke[], vertices: Path_Metadata[]): Map<Path_Metadata, Stroke[]>{
     const map = new Map<Path_Metadata, Stroke[]>()
@@ -186,7 +217,7 @@ export function vertices_within_distance_of_edge(distance: number, edges: Stroke
     tree.finish()
     for (const v of vertices){ // O(n)
         logs?.push("Checking incidence for vertex "+ v)
-        let bb = scale_bb_by_factor(v.bounds, distance)
+        let bb = scale_bb_by_factor(v.getBounds(), distance)
         // Make a query for all points within distance of bounding box of v
         const foundIds = tree.range(bb[0], bb[1], bb[2], bb[3])
         const foundEdges: Set<Stroke> = new Set()

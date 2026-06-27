@@ -34,7 +34,7 @@ export function get_paths_from_page(page: mupdf.Page): Path_Metadata[]{
 
 /** Turns a list of Path objects into a clustered list of Drawings, based on overlapping bounding boxes. */
 export function group_paths_by_bb(paths: Path_Metadata[]): Drawing[]{
-    var drawings: Drawing[] = paths.map(path => new Drawing([path], path.bounds))
+    var drawings: Drawing[] = paths.map(path => new Drawing([path], path.getBounds()))
     var len_before = drawings.length
     var break_count = 0
     while(true){

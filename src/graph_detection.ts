@@ -43,12 +43,6 @@ function filter_vertices(vertex_candidates: Path_Metadata[], edge_candidates: St
 
 
 /** */
-function filter_vertices_if_incident(vertex_candidates: Path_Metadata[], edge_candidates: Stroke[]){ //TODO: if two vertices are incident, one is likely not a vertex
-
-}
-
-
-/** */
 function filter_vertices_by_mean_size(vertex_candidates: Path_Metadata[], edge_candidates: Stroke[]){//TODO: put vertices into clusters by mean size, then only take largest cluster
 
 }
@@ -153,6 +147,7 @@ export function detect_graphs_from_drawing(drawing : Drawing, logs? : string[]):
         //console.log("Found an empty drawing. Vertices: " + vertex_candidates.length + " Edges: "+ edge_candidates.length)
         return []
     }
+    utils.merge_overlapping_vertices(vertex_candidates)
     //console.log("inititial vertex candidates: "+vertex_candidates.length + " edge candidates: "+edge_candidates.length)
     let graph = utils.vertices_within_distance_of_edge(VERTEX_EDGE_DISTANCE_THRESHOLD, edge_candidates, vertex_candidates)
     // Start of new V2 features

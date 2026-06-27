@@ -52,8 +52,8 @@ export class Graph{
     private used_ids: Set<number>
     metadata: string[]
     // Minimum size a Graph needs to be in order to not be rejected (last model used 4 Edges, 5 Vertices)s
-    static readonly MINIMUM_EDGES = 1
-    static readonly MINIMUM_VERTICES = 2
+    static readonly MINIMUM_EDGES = 4
+    static readonly MINIMUM_VERTICES = 5
 
     constructor(vertices?: Path_Metadata[], edges?: {v1: Path_Metadata, v2: Path_Metadata}[]){
         this.map = new Map()
@@ -330,10 +330,10 @@ export class Graph{
             const next_rects = []
             for (const vertex of graph.vertices){
                 if (vertex.metadata.shape == "circle"){
-                    next_circles.push({radius: vertex.pos.x - vertex.metadata.bounds[0], center: vertex.pos, index: vertex.id} as Circle)
+                    next_circles.push({radius: vertex.pos.x - vertex.metadata.minX, center: vertex.pos, index: vertex.id} as Circle)
                 }
                 else { // Technically could be a Path, but at that point something went wrong already, so probably fine to just treat both cases as Rectangle
-                    const bounds = vertex.metadata.bounds
+                    const bounds = vertex.metadata.getBounds()
                     next_rects.push({topLeft: {x: bounds[0], y: bounds[1]}, bottomRight: {x: bounds[2], y: bounds[3]}, index: vertex.id} as Rectangle)
                 }
             }
@@ -464,7 +464,10 @@ export class Stroke{
 /** Currently used ambiguously as either a single Path object, which is part of a Drawing, or as a vertex candidate */
 export class Path_Metadata{
     path: mupdf.Path
-    bounds: mupdf.Rect
+    minX: number
+    minY: number
+    maxX: number
+    maxY: number
     ctm: mupdf.Matrix
     type: "fill" | "stroke"
     shape?: "circle" | "rectangle" | "path"
@@ -477,7 +480,10 @@ export class Path_Metadata{
 
     constructor(path: mupdf.Path, bounds: mupdf.Rect, ctm: mupdf.Matrix, type: "fill" | "stroke", colorSpace: mupdf.ColorSpace, color: mupdf.Color, alpha: number, stroke?: mupdf.StrokeState, evenOdd?: boolean, shape?: "circle" | "rectangle" | "path") {
         this.path = path
-        this.bounds = bounds
+        this.minX = bounds[0]
+        this.minY = bounds[1]
+        this.maxX = bounds[2]
+        this.maxY = bounds[3]
         this.ctm = ctm
         this.type = type
         if (shape)
@@ -498,8 +504,8 @@ export class Path_Metadata{
 
 
     height_width_ratio(){
-        const width = this.bounds[2] - this.bounds[0]
-        const height = this.bounds[3] - this.bounds[1]
+        const width = this.maxX - this.minX
+        const height = this.maxY - this.minY
         if (width != 0)
             return height / width
         else return 0
@@ -507,17 +513,40 @@ export class Path_Metadata{
 
 
     area(){
-        return (this.bounds[2] - this.bounds[0]) * (this.bounds[3] - this.bounds[1])
+        return (this.maxX - this.minX) * (this.maxY - this.minY)
     }  
 
 
     center(){
-        return {x: (this.bounds[2] + this.bounds[0]) / 2, y: (this.bounds[3] + this.bounds[1]) / 2}
+        return {x: (this.maxX + this.minX) / 2, y: (this.maxY + this.minY) / 2}
     }
 
+    getBounds(){
+        return [this.minX, this.minY, this.maxX, this.maxY] as mupdf.Rect
+    }
+
+    /** returns a Path_Metadata object with desired center position, size, and default configurations */
     static default(pos: Point, edge_length: number = 10){
         edge_length /= 2
-        return new Path_Metadata(new mupdf.Path(), [pos.x - edge_length, pos.y - edge_length, pos.x + edge_length, pos.y + edge_length], mupdf.Matrix.identity, "fill", mupdf.ColorSpace.DeviceRGB, [1,0,0], 1, undefined, true, "rectangle",)
+        return new Path_Metadata(new mupdf.Path(), [pos.x - edge_length, pos.y - edge_length, pos.x + edge_length, pos.y + edge_length], mupdf.Matrix.identity, "fill", mupdf.ColorSpace.DeviceRGB, [0,1,0], 1, undefined, true, "rectangle",)
+    }
+
+
+    /** admittedly weird and makeshift function to merge two vertex candidates */
+    static merge(p1: Path_Metadata, p2: Path_Metadata){
+        let pos = { x: (p1.center().x + p2.center().x) /2, y: (p1.center().y + p2.center().y) /2} as Point
+        let x_min = p1.minX < p2.minX? p1.minX : p2.minX
+        let x_max = p1.maxX > p2.maxX? p1.maxX : p2.maxX
+        let y_min = p1.minY < p2.minY? p1.minY : p2.minY
+        let y_max = p1.maxY > p2.maxY? p1.maxY : p2.maxY
+        let x_length = Math.abs(x_max - x_min)
+        let y_length = Math.abs(y_max - y_min)
+        let edge_length = x_length > y_length? x_length : y_length
+
+        const is_dominating = p1.area() > p2.area()
+        if((is_dominating && p1.shape === "circle") || (!is_dominating && p2.shape === "circle"))
+            edge_length /= 1.12838 //make Rectangle smaller so that area stays the same
+        return this.default(pos, edge_length)
     }
 }
 
@@ -551,7 +580,7 @@ export class Drawing{
                 let x_max = -Infinity
                 let y_max = -Infinity
                 for (var path of paths){
-                    let bb = path.bounds
+                    let bb = path.getBounds()
                     var x1 = bb[0]
                     var y1 = bb[1]
                     var x2 = bb[2]
