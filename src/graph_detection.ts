@@ -1,12 +1,15 @@
-import {Drawing, Path_Metadata, Stroke, Graph} from "./wrappers.js"
+import {Drawing, Path_Metadata, Stroke, Graph, type Point} from "./wrappers.js"
 import * as utils from "./geometry_utils.js"
 
 // Only keep vertices with a ratio between that and its inverse
 const VERTEX_HEIGHT_WIDTH_RATIO_THRESHOLD = 0.5
 // Only consider edges connected to a vertex, if the edge overlaps the vertices bounding box, scaled by this
 const VERTEX_EDGE_DISTANCE_THRESHOLD = 1.3
-// Filter vertices that take up 25% or more of the drawing's bounding box
+// Filter vertices that take up at least that percentage of the drawing's bounding box
 const DRAWING_AREA_THRESHOLD = 0.2
+// Determines by what percentage vertices of the same cluster may be apart in size
+const GROUP_VERTEX_THRESHOLD = 0.3
+const MIN_CLUSTER_SIZE = 5
 
 
 /** Uses various checks to turn all vertex candidates that fail one of them into edge candidates
@@ -36,15 +39,113 @@ function filter_vertices(vertex_candidates: Path_Metadata[], edge_candidates: St
         // Code that actually does something with the flag
         if (is_good)
             vertex_candidates.push(vertex)            
-        else if (vertex.type =="stroke")
+        else
             edge_candidates.push(... utils.break_path_into_strokes(vertex).strokes)   
     }
 }
 
 
-/** */
-function filter_vertices_by_mean_size(vertex_candidates: Path_Metadata[], edge_candidates: Stroke[]){//TODO: put vertices into clusters by mean size, then only take largest cluster
+/** Groups the vertex candidates by size into different clusters, then performs different checks to filter.
+ * Will change the parameter 'edge_candidates' accordingly and return a new list of filtered vertex_candidates
+*/
+function filter_vertices_by_area(vertex_candidates: Path_Metadata[], edge_candidates: Stroke[], logs?: string[]){
+    const clusters: Path_Metadata[][] = []
+    const accepted_vertices = []
+    const further_examination = []
+    // CASE 1: enough vertex candidates
+    if (vertex_candidates.length >= 2*MIN_CLUSTER_SIZE){
+        logs?.push("Case 1: Found enough intial vertices")
+        // Clustering
+        for (const vertex of vertex_candidates){
+            var cluster_found = false
+            for (const cluster of clusters){
+                let avg_size: number = 0
+                cluster.forEach(x => avg_size +=x.area())
+                avg_size /= cluster.length // now is the average size
+                if (Math.abs(avg_size - vertex.area()) <= avg_size * GROUP_VERTEX_THRESHOLD){
+                    cluster.push(vertex)
+                    cluster_found = true
+                    break
+                }    
+            }
+            if (!cluster_found)
+                clusters.push([vertex])
+        }
+        logs?.push("Found "+clusters.length +" clusters")
+        for(const cluster of clusters){
+            let res = "Next cluster: \n"
+            for (const v of cluster){
+                res += v.area()+", "
+            }
+            logs?.push(res)
+        }
+        // First check: number of elements per cluster and avg size
+        for (const cluster of clusters){
+            if (cluster.length < MIN_CLUSTER_SIZE){ // few elements
+                logs?.push("Putting cluster into further examination")
+                further_examination.push(...cluster)
+                continue
+            }
+            else if(clusters.length > 9){ // Compute avg size for size check
+                var other_avg_size = 0
+                const others = vertex_candidates.filter(v => cluster.some(x => x === v))
+                others.forEach(x => {
+                    other_avg_size += x.area()
+                })
+                other_avg_size /= others.length
+                // Use avg size to filter vertices based on size
+                for (const v of cluster){
+                    if (v.area() / other_avg_size >= 3){ // v is larger than average
+                        logs?.push("Found large vertex, sending to further examination...")
+                        further_examination.push(v)
+                    }
+                    else{
+                        accepted_vertices.push(v)
+                    }
+                        
+                } 
+            }
+            else{ // All vertices about the same size
+                logs?.push("All vertices about the same size, accepting all")
+                accepted_vertices.push(...cluster)
+            }
 
+        }
+        const points: Point[] = []
+        accepted_vertices.forEach(x => points.push(x.center()))
+        for (const vertex of further_examination){
+            if (utils.vertex_contains_point(vertex, points)){
+                logs?.push("Rejected a vertex")
+                edge_candidates.push(...utils.break_path_into_strokes(vertex).strokes)
+            }   
+            else{
+                accepted_vertices.push(vertex)
+                points.push(vertex.center())
+            }
+        }
+    }
+    // CASE 2: not a lot of vertex candidates to begin with
+    else{
+        logs?.push("Case 2: not a lot of vertices")
+        // Simply reject based on size compared to average
+        let avg_size: number = 0
+        vertex_candidates.forEach(x => avg_size += x.area())
+        avg_size /= vertex_candidates.length
+        for (const vertex of vertex_candidates){
+            if (Math.abs(avg_size - vertex.area()) <= avg_size * GROUP_VERTEX_THRESHOLD)
+                accepted_vertices.push(vertex)
+            else{
+                logs?.push("Rejected a vertex")
+                edge_candidates.push(...utils.break_path_into_strokes(vertex).strokes)
+            }    
+        }
+    }
+    let res = ""
+    for (const v of accepted_vertices){
+        res += v.area() +", "
+    }
+    logs?.push(res)
+    return accepted_vertices
 }
 
 
@@ -127,31 +228,31 @@ function build_graphs_from_map(map: Map<Path_Metadata, Stroke[]>, logs?: string[
 /**The access point to graph detection. Takes a drawing and tries to extract a list of graphs from it. */
 export function detect_graphs_from_drawing(drawing : Drawing, logs? : string[]): Graph[]{
     // Finding Candidates
-    let vertex_candidates: Path_Metadata[] = drawing.paths.filter(x => x.type == "fill") //Fill objects can only be vertices and should not be taken apart
-    let stroke_paths: Path_Metadata[] = drawing.paths.filter(x => x.type == "stroke") // stroke objects can represent a vertex or one or more edges
+    let vertex_candidates: Path_Metadata[] = [] 
+    let stroke_paths: Path_Metadata[] = []
     var edge_candidates: Stroke[] = []
     //logs?.push("Initializing Graph Detection for new Drawing...\n")
-    for (var stroke_path of stroke_paths){
-        let res = utils.break_path_into_strokes(stroke_path)
+    for (var path of drawing.paths){
+        let res = utils.break_path_into_strokes(path)
         if (res.is_closed){
-            stroke_path.shape = res.shape
-            vertex_candidates.push(stroke_path)
+            path.shape = res.shape
+            vertex_candidates.push(path)
         }
             
         else
             edge_candidates.push(... res.strokes) //TODO: stroke circles land here!
     }
     filter_vertices(vertex_candidates, edge_candidates,{height_width: true, drawing_area: drawing.area()})
-    // TODO filter overlapping vertices, filter vertices based on size(?)
-    if (vertex_candidates.length == 0 || edge_candidates.length == 0){
-        //console.log("Found an empty drawing. Vertices: " + vertex_candidates.length + " Edges: "+ edge_candidates.length)
+    vertex_candidates = filter_vertices_by_area(vertex_candidates, edge_candidates)
+    var implied_vertices = false
+    if (vertex_candidates.length == 0)
+        implied_vertices = true
+    if (edge_candidates.length == 0)
         return []
-    }
     utils.merge_overlapping_vertices(vertex_candidates)
-    //console.log("inititial vertex candidates: "+vertex_candidates.length + " edge candidates: "+edge_candidates.length)
     let graph = utils.vertices_within_distance_of_edge(VERTEX_EDGE_DISTANCE_THRESHOLD, edge_candidates, vertex_candidates)
     // Start of new V2 features
-    utils.edges_incident_to_edges(edge_candidates, graph)
+    utils.edges_incident_to_edges(edge_candidates, graph, implied_vertices)
     let {new_graph, new_edges} = utils.split_edges_with_middle_vertex(graph, edge_candidates)
     graph = new_graph
     edge_candidates = new_edges

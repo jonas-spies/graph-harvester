@@ -2,7 +2,7 @@ import * as mupdf from 'mupdf'
 import * as utils from './geometry_utils.js'
 
 
-const default_stroke = new mupdf.StrokeState({
+export const default_stroke = new mupdf.StrokeState({
                     lineCap: "Square",
                     lineJoin: "Bevel",
                     lineWidth: 2.0,
@@ -503,7 +503,7 @@ export class Path_Metadata{
     }
 
 
-    height_width_ratio(){
+    height_width_ratio(): number{
         const width = this.maxX - this.minX
         const height = this.maxY - this.minY
         if (width != 0)
@@ -512,16 +512,16 @@ export class Path_Metadata{
     }
 
 
-    area(){
+    area(): number{
         return (this.maxX - this.minX) * (this.maxY - this.minY)
     }  
 
 
-    center(){
-        return {x: (this.maxX + this.minX) / 2, y: (this.maxY + this.minY) / 2}
+    center(): Point{
+        return {x: (this.maxX + this.minX) / 2, y: (this.maxY + this.minY) / 2} as Point
     }
 
-    getBounds(){
+    getBounds(): mupdf.Rect{
         return [this.minX, this.minY, this.maxX, this.maxY] as mupdf.Rect
     }
 

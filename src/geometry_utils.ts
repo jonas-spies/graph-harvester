@@ -1,4 +1,4 @@
-import { Drawing, Path_Metadata, Stroke, type Point } from "./wrappers.js"
+import { Drawing, Path_Metadata, Stroke, type Point, default_stroke } from "./wrappers.js"
 import RBush from "rbush"
 import KDBush from 'kdbush'
 import * as mupdf from "mupdf"
@@ -41,8 +41,8 @@ export function merge_bounding_boxes(drawings: Drawing[]): Drawing[]{
 
 /** Practically a 1:1 copy of merge_bounding_boxes(), just for vertex candidates, and it modifies the passed array instead of returning a new array. 
  * @warning The function loses the Path information of the merged vertices.  
- * @warning just like merge_bounding_boxes(), it may need to be exectued repeatedly until convergence*/
-export function merge_overlapping_vertices(vertex_candidates: Path_Metadata[]){
+ * @warning just like mefrge_bounding_boxes(), it may need to be exectued repeatedly until convergence*/
+export function merge_overlapping_vertices(vertex_candidates: Path_Metadata[], logs?: string[]){
     const tree = new RBush<Path_Metadata>
     var result : Path_Metadata[] = []
     var already_used: Map<Path_Metadata, number> = new Map()
@@ -63,6 +63,7 @@ export function merge_overlapping_vertices(vertex_candidates: Path_Metadata[]){
                 let merged = Path_Metadata.merge(cluster, n)
                 result[index] = merged
                 already_used.set(n, index)
+                logs?.push("Merged two overlapping vertices")
             }
         }
     }
@@ -79,60 +80,59 @@ export function transform_point(ctm: mupdf.Matrix, x: number, y: number): {x: nu
 
 
 /** Takes a path object and returns a list of all its strokes, as well as a boolean indicating if the path formed a closed loop
-@warning if there is even just a fraction of a pixel between the start and endpoint, it won't be considered a closed loop*/
-export function break_path_into_strokes(stroke_path: Path_Metadata, logs?: string[]): {strokes: Stroke[], is_closed: boolean, shape: "circle" | "rectangle" | "path"} {
-        var stroke_segments: Stroke[] = []
-        var is_closed = false
-        var shape: "circle" | "rectangle" | "path" = "rectangle"
-        var last: {x: number, y: number} | undefined
-        var loop_start: {x: number, y: number} | undefined
-        var strokeStyle = stroke_path.stroke
-        var ctm = stroke_path.ctm
-        logs?.push("\nContinuing with new stroke Path...\n")
-        if (strokeStyle === undefined)
-            throw new Error("encountered stroke Path with no strokeStyle")
-            
-        var path_walker = {
-            moveTo: function (x: number, y: number) {
-                var point = transform_point(ctm, x,y)
-                logs?.push("moving to "+ point.x + " "+ point.y + "\n")
-                last = point
-                loop_start = point
-            },
-            lineTo: function (x: number, y: number) {
-                if (!last) 
-                    throw new Error("lineTo without moveTo")
-                var end = transform_point(ctm, x,y)
-                logs?.push("line from "+ last.x+ " "+ last.y + " to "+ end.x + " " + end.y + "\n")
-                stroke_segments.push(new Stroke("line", strokeStyle!, [last, end]))
-                last = end
-            },
-            curveTo: function (x1:number, y1:number, x2:number, y2:number, x3:number, y3:number) {
-                if (!last) 
-                    throw new Error("curveTo without moveTo")
-                if (shape != "circle")
-                    shape = "circle"
-                var p1 = transform_point(ctm, x1, y1)
-                var p2 = transform_point(ctm, x2, y2)
-                var p3 = transform_point(ctm, x3, y3)
-                logs?.push("curve from " +  last.x + " "+ last.y + " through " + p1.x +" "+ p1.y+" and "+ p2.x +" "+ p2.y + " to "+  p3.x + " "+  p3.y + "\n")
-                stroke_segments.push(new Stroke("curve", strokeStyle!, [last, p1, p2, p3]))
-                last = p3
-            },
-            closePath: function () {
-                is_closed = true
-                if (!loop_start || !last)
-                    throw new Error ("closePath without moveTo")
-                stroke_segments.push(new Stroke("line", strokeStyle!, [last, loop_start]))
-                logs?.push("closing Path\n")
-            }
-        } 
-        stroke_path.path.walk(path_walker)
-        if (loop_start && last && loop_start.x == last.x && loop_start.y == last.y)
+@warning if there is even just a fraction of a pixel between the start and endpoint, it won't be considered a closed loop */
+export function break_path_into_strokes(path: Path_Metadata, logs?: string[]): {strokes: Stroke[], is_closed: boolean, shape: "circle" | "rectangle" | "path"} {
+    const is_fill = path.type == "fill"
+    var stroke_segments: Stroke[] = []
+    var is_closed = false
+    var shape: "circle" | "rectangle" | "path" = "rectangle"
+    var last: {x: number, y: number} | undefined
+    var loop_start: {x: number, y: number} | undefined
+    var strokeStyle = is_fill?  default_stroke : path.stroke
+    var ctm = path.ctm
+    
+        
+    var path_walker = {
+        moveTo: function (x: number, y: number) {
+            var point = transform_point(ctm, x,y)
+            logs?.push("moving to "+ point.x + " "+ point.y + "\n")
+            last = point
+            loop_start = point
+        },
+        lineTo: function (x: number, y: number) {
+            if (!last) 
+                throw new Error("lineTo without moveTo")
+            var end = transform_point(ctm, x,y)
+            logs?.push("line from "+ last.x+ " "+ last.y + " to "+ end.x + " " + end.y + "\n")
+            stroke_segments.push(new Stroke("line", strokeStyle!, [last, end]))
+            last = end
+        },
+        curveTo: function (x1:number, y1:number, x2:number, y2:number, x3:number, y3:number) {
+            if (!last) 
+                throw new Error("curveTo without moveTo")
+            if (shape != "circle")
+                shape = "circle"
+            var p1 = transform_point(ctm, x1, y1)
+            var p2 = transform_point(ctm, x2, y2)
+            var p3 = transform_point(ctm, x3, y3)
+            logs?.push("curve from " +  last.x + " "+ last.y + " through " + p1.x +" "+ p1.y+" and "+ p2.x +" "+ p2.y + " to "+  p3.x + " "+  p3.y + "\n")
+            stroke_segments.push(new Stroke("curve", strokeStyle!, [last, p1, p2, p3]))
+            last = p3
+        },
+        closePath: function () {
             is_closed = true
-        if (!is_closed)
-            shape = "path"
-        return {strokes: stroke_segments, is_closed: is_closed, shape: shape}
+            if (!loop_start || !last)
+                throw new Error ("closePath without moveTo")
+            stroke_segments.push(new Stroke("line", strokeStyle!, [last, loop_start]))
+            logs?.push("closing Path\n")
+        }
+    } 
+    path.path.walk(path_walker)
+    if (loop_start && last && loop_start.x == last.x && loop_start.y == last.y)
+        is_closed = true
+    if (!is_closed)
+        shape = "path"
+    return {strokes: stroke_segments, is_closed: is_closed, shape: shape}
 }
 
 
@@ -192,10 +192,10 @@ function euclidean_distance(p1: Point, p2: Point){
 /**Breaks up each edge into a constant number of sample points, then checks for each vertex what sample points lie within range of its bounding box.
  * @constant STROKE_APPROXIMATION_RESOLUTION specifies how many sample points will be made for each edge
  * @input distance: a factor by which a vertex's bounding box is scaled before checking if any sample points lie in that box
- * @input edges: each edge is modified so that its .start or .end are linked to up to one vertex incident to its respective endpoint
+ * @input edges: each edge will be modified so that its .start_incident or .end_incident are linked to up to one vertex incident to its respective endpoint
  * @output A map that returns for each vertex a list of incident edges. This is the only way in which the relation between vertices lying between two endpoints of an edge is stored 
  * @warning If multiple vertices are incident to the same edge endpoint, an arbitrary one will be linked to it, but the others will still be featured in the output map*/
-export function vertices_within_distance_of_edge(distance: number, edges: Stroke[], vertices: Path_Metadata[], logs?: string[]): Map<Path_Metadata, Stroke[]>{
+export function vertices_within_distance_of_edge(distance_threshold: number, edges: Stroke[], vertices: Path_Metadata[], logs?: string[]): Map<Path_Metadata, Stroke[]>{
     const map = new Map<Path_Metadata, Stroke[]>()
     const point_to_edge: Stroke[] = [] // using this, index of point leads to corresponding edge
     const edge_to_index_range = new Map<Stroke, {first_index : number, last_index: number}>()
@@ -215,27 +215,39 @@ export function vertices_within_distance_of_edge(distance: number, edges: Stroke
     for (const {x,y} of points)
         tree.add(x,y)
     tree.finish()
+    
     for (const v of vertices){ // O(n)
         logs?.push("Checking incidence for vertex "+ v)
-        let bb = scale_bb_by_factor(v.getBounds(), distance)
+        let bb = scale_bb_by_factor(v.getBounds(), distance_threshold)
         // Make a query for all points within distance of bounding box of v
         const foundIds = tree.range(bb[0], bb[1], bb[2], bb[3])
-        const foundEdges: Set<Stroke> = new Set()
+        const foundEdges: Map<Stroke, number[]> = new Map()
         foundIds.forEach(x => {
             let edge = point_to_edge[x]!
-            foundEdges.add(edge)
+            if (!foundEdges.has(edge))
+                foundEdges.set(edge, [])
+            foundEdges.get(edge)!.push(x)
         })
         const incident_edges : Stroke[] = []
-        for (const edge of foundEdges){ // O(m)
+        for (const [edge, indices] of foundEdges){ // O(m)
             logs?.push("Found edge: "+edge)
             let {first_index, last_index} = edge_to_index_range.get(edge)!
+            var lowest_index = indices[0]!
             var lowest_distance = Infinity
-            var lowest_index = first_index
-            for (var i = first_index; i <= last_index; i++){ // O(1) => total runtime quadratic
-                const distance = euclidean_distance(points[i]!, v.center())
+            for (var i = 0; i < indices.length; i++){ // O(1) => total runtime quadratic
+                let index = indices[i]!
+                if (index == first_index){
+                    lowest_index = index
+                    break
+                }
+                else if(index == last_index){
+                    lowest_index = index
+                    break
+                }
+                const distance = euclidean_distance(points[index]!, v.center())
                 if (distance < lowest_distance){
                     lowest_distance = distance
-                    lowest_index = i
+                    lowest_index = index
                 }
             }
             switch(lowest_index){
@@ -258,7 +270,13 @@ export function vertices_within_distance_of_edge(distance: number, edges: Stroke
 }
 
 
-
+export function vertex_contains_point(vertex: Path_Metadata, points: Point[]){
+    const tree = new KDBush(points.length)
+    for (const point of points)
+        tree.add(point.x, point.y)
+    tree.finish()
+    return tree.range(vertex.minX, vertex.minY, vertex.maxX, vertex.maxY).length !== 0
+}
 
 
 /**Determines for each edge how many vertices lie between its two endpoints, approximates its coordinates on the line using STROKE_APPROXIMATION_RESOLUTION, and splits each edge along these points.
@@ -417,11 +435,21 @@ export function median(values: number[]): number {
     return sorted[mid]!
 }
 
+/** Returns the mean of a list of numbers */
+export function mean(values: number[]): number {
+    if (values.length === 0)
+        throw new Error("Cannot compute mean of empty array")
+    let sum = 0
+    values.forEach(x => sum += x)
+    return sum / values.length
+}
+
 
 /** Checks for each edge if it is an orphan or half orphan, then checks if any endpoints of another edge lie within range.s
  * If exactly one edge is incident, this will become its neighbor. If two or more edges are incident, this will be interpreted as an implied vertex.
- * @TODO make it more robust in cases where a neighboring edge is actually already incident to a vertex or edge at that endpoint (currently would drop that incidence) */
-export function edges_incident_to_edges(edges: Stroke[], graph: Map<Path_Metadata, Stroke[]>, logs? : string[]){ // TODO? filter based on StrokeStyle for the most likely candidate
+ * @TODO make it more robust in cases where a neighboring edge is actually already incident to a vertex or edge at that endpoint (currently would drop that incidence) 
+ * @TODO what happens if we dont imply vertices and multiple edges meet in a common endpoint?*/
+export function edges_incident_to_edges(edges: Stroke[], graph: Map<Path_Metadata, Stroke[]>, implied_vertices: boolean, logs? : string[]){ // TODO? filter based on StrokeStyle for the most likely candidate
     const n = edges.length
     const points = [... edges.map(x => x.start), ... edges.map(x => x.end)] // First n indices are of type start, indices from n, ..., 2n-1 are of type end
     const tree = new KDBush(2*n)
@@ -480,43 +508,69 @@ export function edges_incident_to_edges(edges: Stroke[], graph: Map<Path_Metadat
             case 0: // edge stays an orphan
                 break
             case 1: // edge is continued
-                let index = indices[0]!
-                const other_start = (index < n)
-                const other_edge = other_start? (edges[index]!) : (edges[index - n]!)
-                //TODO: maybe infer a vertex if StrokeStyle differs too much
-                if (start){
-                    edge.start_incident = other_edge
-                    if (other_start)
-                        other_edge.start_incident = edge
+                if (implied_vertices){
+                    logs?.push("Found implied vertex: x ="+ point.x + "y ="+point.y+"\n")
+                    let vertex = Path_Metadata.default(point, edge.stroke.getLineWidth())
+                    let edgelist: Stroke[] = [edge]
+                    for (const index of indices) {
+                        const other_edge = index < n? (edges[index]!) : (edges[index - n]!)
+                        if (index < n)
+                            other_edge.start_incident = vertex
+                        else
+                            other_edge.end_incident = vertex
+                        edgelist.push(other_edge)
+                    }
+                    graph.set(vertex, edgelist)
+                    if (start)
+                        edge.start_incident = vertex
                     else
-                        other_edge.end_incident = edge
+                        edge.end_incident = vertex
+                    break
                 }
-                    
                 else{
-                    edge.end_incident = other_edge
-                    if (other_start)
-                        other_edge.start_incident = edge
-                    else
-                        other_edge.end_incident = edge
+                    let index = indices[0]!
+                    const other_start = (index < n)
+                    const other_edge = other_start? (edges[index]!) : (edges[index - n]!)
+                    //TODO: maybe infer a vertex if StrokeStyle differs too much
+                    if (start){
+                        edge.start_incident = other_edge
+                        if (other_start)
+                            other_edge.start_incident = edge
+                        else
+                            other_edge.end_incident = edge
+                    }
+                        
+                    else{
+                        edge.end_incident = other_edge
+                        if (other_start)
+                            other_edge.start_incident = edge
+                        else
+                            other_edge.end_incident = edge
+                    }
+                    break
                 }
-                break
+
             default: // more than 1 indicates an implied vertex
-                logs?.push("Found implied vertex: x ="+ point.x + "y ="+point.y+"\n")
-                let vertex = Path_Metadata.default(point, edge.stroke.getLineWidth())
-                let edgelist: Stroke[] = [edge]
-                for (const index of indices) {
-                    const other_edge = index < n? (edges[index]!) : (edges[index - n]!)
-                    if (index < n)
-                        other_edge.start_incident = vertex
+                if(implied_vertices){
+                    logs?.push("Found implied vertex: x ="+ point.x + "y ="+point.y+"\n")
+                    let vertex = Path_Metadata.default(point, edge.stroke.getLineWidth())
+                    let edgelist: Stroke[] = [edge]
+                    for (const index of indices) {
+                        const other_edge = index < n? (edges[index]!) : (edges[index - n]!)
+                        if (index < n)
+                            other_edge.start_incident = vertex
+                        else
+                            other_edge.end_incident = vertex
+                        edgelist.push(other_edge)
+                    }
+                    graph.set(vertex, edgelist)
+                    if (start)
+                        edge.start_incident = vertex
                     else
-                        other_edge.end_incident = vertex
-                    edgelist.push(other_edge)
+                        edge.end_incident = vertex
                 }
-                graph.set(vertex, edgelist)
-                if (start)
-                    edge.start_incident = vertex
-                else
-                    edge.end_incident = vertex
+                //TODO: what happens if we don't imply vertices?
+                
         }
     }
     if (logs){
