@@ -32,7 +32,7 @@ export function execute(){
 }
 
 
-export function execute_file(file: string | ArrayBuffer | mupdf.Buffer | Uint8Array<ArrayBufferLike> | mupdf.Stream, params?:{logs?: string[], to_png? :string}){
+export function execute_file(file: string | ArrayBuffer | mupdf.Buffer | Uint8Array<ArrayBufferLike> | mupdf.Stream, params:{hog: boolean, logs?: string[], to_png? :string}){
     let doc = mupdf.PDFDocument.openDocument(file)
     let detected_graphs: DetectedGraph[] = []
     for  (var i = 0; i< doc.countPages(); i++){
@@ -49,7 +49,7 @@ export function execute_file(file: string | ArrayBuffer | mupdf.Buffer | Uint8Ar
                 for (var k = 0; k<new_graphs.length; k++){
                     new_graphs[k]!.metadata.push("Page " +(i+1) + ", Drawing " + (j+1) + ", Nr " + k)
                 }
-                detected_graphs.push(Graph.toDetectedGraph(new_graphs, drawing))
+                detected_graphs.push(Graph.toDetectedGraph(new_graphs, drawing, params.hog))
             }      
         }
     }

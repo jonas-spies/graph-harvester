@@ -67,7 +67,7 @@ export function merge_overlapping_vertices(vertex_candidates: Path_Metadata[], l
             }
         }
     }
-    vertex_candidates = result
+    return result
 }
 
 /**Applies a matrix transformation on the point, returning its new coordinates*/
@@ -390,7 +390,6 @@ export function split_edges_with_middle_vertex(graph: Map<Path_Metadata, Stroke[
                     left.vertex.start_incident = segment
                 else
                     left.vertex.end_incident = segment
-                logs?.push("Encountered Left Vertex as Stroke: "+ left.vertex)
             }
             if (right.vertex instanceof Path_Metadata){
                 segment.end_incident = right.vertex
@@ -402,8 +401,8 @@ export function split_edges_with_middle_vertex(graph: Map<Path_Metadata, Stroke[
                     right.vertex.start_incident = segment
                 else
                     right.vertex.end_incident = segment
-                logs?.push("Encountered Right Vertex as Stroke: "+right.vertex)
             }
+            logs?.push("Created a new segment: "+ segment.toString() + "\nLeft: " + segment.start_incident?.toString() + "\nRight: " + segment.end_incident?.toString())
         }
     }
     if(logs){

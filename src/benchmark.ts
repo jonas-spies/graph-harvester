@@ -5,7 +5,7 @@ import { execute_file } from "./pipeline.js";
 import { exportGraph, exportGraphAsAdjacency } from "./pdf_extraction.js";
 
 const benchmark_directory = "test_files/benchmark/TP"
-const result_directory = "test_files/benchmark/V2/"
+const result_directory = "test_files/benchmark/V3/"
 const matched_flag = "Matched with a graph"
 const TP_but_not_A_grade = "test_files/benchmark/TP_but_not_A_grade" // obsolete
 
@@ -45,8 +45,7 @@ function parse_graphs_from_gvs(gv_files: string[], logs? : string[]): Graph[]{
     return graphs
 }
 
-// Checks if the two graphs have the same number of edges and vertices
-/**Checks if the two graphs (usually one from thte model, one reference graph) have the same number of edges and returns the corresponding truth value.
+/**Checks if the two graphs (usually one from the model, one reference graph) have the same number of edges and returns the corresponding truth value.
 If they could be matched, it flags both Graphs as such. */
 function match_graphs(g1: Graph, g2: Graph): boolean{
     var res: boolean = true
@@ -73,10 +72,10 @@ export function benchmark(){
     var total = 0
     var total_ref = 0
     for (const file of pdf_files){
-        logs.push("Processing "+ file)
+        //logs.push("Processing "+ file)
         const full_path = path.join(benchmark_directory, file)
         const file_name = path.parse(file).name
-        const detected_graphs = execute_file(fs.readFileSync(full_path), {to_png: (result_directory+file_name+"_")})
+        const detected_graphs = execute_file(fs.readFileSync(full_path), {to_png: (result_directory+file_name+"_"), hog:false})
         const graphs: Graph[] = []
         for (const detected_graph of detected_graphs){
                 graphs.push(...detected_graph.connected_components)
@@ -98,7 +97,7 @@ export function benchmark(){
         for(var i = 0; i<graphs.length; i++){
             let graph = graphs[i]!
             graph.metadata.push(file)
-            logs.push(graph.toString())
+            //logs.push(graph.toString())
             exportGraph(graph, result_directory+file_name+"_"+i)
             exportGraphAsAdjacency(graph, result_directory+file_name+"_"+i+"_adj")
         }

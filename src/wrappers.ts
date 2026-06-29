@@ -311,7 +311,7 @@ export class Graph{
     }
 
 
-    static toDetectedGraph(graphs: Graph[], drawing: Drawing){
+    static toDetectedGraph(graphs: Graph[], drawing: Drawing, hog: boolean){
         const n = graphs.length
         const img : string = utils.pngBytesToBase64(drawing.toPNG(2))
         const boundingBox: readonly [number, number, number, number] = drawing.getBounds()
@@ -325,7 +325,10 @@ export class Graph{
         const hog_ids: number[] = [] // TODO: make a function that asks HOG
         for (const graph of graphs){
             graph6_strings.push(graph.toGraph6())
-            hog_ids.push(Number(graph.get_hog_id()))
+            let hog_id = 0
+            if (hog)
+                hog_id = Number(graph.get_hog_id())
+            hog_ids.push(hog_id)
             const next_circles = []
             const next_rects = []
             for (const vertex of graph.vertices){
@@ -410,8 +413,8 @@ export class Stroke{
     }
 
 
-    toString(){
-        return "Type: " + this.type + " Start: " + this.start.x + " "+ this.start.y + " End: " + this.end.x + " " + this.end.y
+    toString(): string{
+        return "Type: " + this.type + " Start: " + this.start.x + " "+ this.start.y + " End: " + this.end.x + " " + this.end.y + "Incidence [Start | End]: [" + (this.start_incident? "Y" : "N") + " | " + (this.end_incident? "Y" : "N") + "]"
     }
 
 
@@ -435,8 +438,8 @@ export class Stroke{
         if (t > 1 || t < 0) // Will probably remove this check because it seems like an easy way to ''extend'' the line in a certain direction
             throw new Error("Illegal argument for t")
         if (this.type == "line"){
-            let x = this.start.x * t + this.end.x * (1-t)
-            let y = this.start.y * t + this.end.y * (1-t)
+            let x = this.start.x * (1-t) + this.end.x * (t)
+            let y = this.start.y * (1-t) + this.end.y * (t)
             return {x,y}
         }
         let p0: {x: number, y: number} = this.start

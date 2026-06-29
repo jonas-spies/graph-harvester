@@ -14,8 +14,7 @@ const MIN_CLUSTER_SIZE = 5
 
 /** Uses various checks to turn all vertex candidates that fail one of them into edge candidates
  * @CHECK Vertices must be somewhat shaped like a square (height / width ratio)
- * @CHECK Vertices must be somewhat small compared to the overall drawings
- */
+ * @CHECK Vertices must be somewhat small compared to the overall drawing*/
 function filter_vertices(vertex_candidates: Path_Metadata[], edge_candidates: Stroke[], params: {height_width: boolean, drawing_area:number}){
     const n = vertex_candidates.length
     for (var i = 0; i < n; i++){
@@ -46,12 +45,13 @@ function filter_vertices(vertex_candidates: Path_Metadata[], edge_candidates: St
 
 
 /** Groups the vertex candidates by size into different clusters, then performs different checks to filter.
- * Will change the parameter 'edge_candidates' accordingly and return a new list of filtered vertex_candidates
-*/
+ * Will change the parameter 'edge_candidates' accordingly and return a new list of filtered vertex_candidatess*/
 function filter_vertices_by_area(vertex_candidates: Path_Metadata[], edge_candidates: Stroke[], logs?: string[]){
     const clusters: Path_Metadata[][] = []
-    const accepted_vertices = []
-    const further_examination = []
+    const accepted_vertices: Path_Metadata[] = []
+    const further_examination: Path_Metadata[] = []
+    if (vertex_candidates.length == 0)
+        return []
     // CASE 1: enough vertex candidates
     if (vertex_candidates.length >= 2*MIN_CLUSTER_SIZE){
         logs?.push("Case 1: Found enough intial vertices")
@@ -81,12 +81,12 @@ function filter_vertices_by_area(vertex_candidates: Path_Metadata[], edge_candid
         }
         // First check: number of elements per cluster and avg size
         for (const cluster of clusters){
-            if (cluster.length < MIN_CLUSTER_SIZE){ // few elements
+            if (cluster.length < MIN_CLUSTER_SIZE && cluster.length > 0){ // few elements
                 logs?.push("Putting cluster into further examination")
                 further_examination.push(...cluster)
                 continue
             }
-            else if(clusters.length > 9){ // Compute avg size for size check
+            else if(cluster.length >= MIN_CLUSTER_SIZE){ // Compute avg size for size check
                 var other_avg_size = 0
                 const others = vertex_candidates.filter(v => cluster.some(x => x === v))
                 others.forEach(x => {
@@ -95,7 +95,7 @@ function filter_vertices_by_area(vertex_candidates: Path_Metadata[], edge_candid
                 other_avg_size /= others.length
                 // Use avg size to filter vertices based on size
                 for (const v of cluster){
-                    if (v.area() / other_avg_size >= 3){ // v is larger than average
+                    if (v.area() / other_avg_size >= 1){ // v is larger than average
                         logs?.push("Found large vertex, sending to further examination...")
                         further_examination.push(v)
                     }
@@ -128,11 +128,11 @@ function filter_vertices_by_area(vertex_candidates: Path_Metadata[], edge_candid
     else{
         logs?.push("Case 2: not a lot of vertices")
         // Simply reject based on size compared to average
-        let avg_size: number = 0
-        vertex_candidates.forEach(x => avg_size += x.area())
-        avg_size /= vertex_candidates.length
+        let sorted = [...vertex_candidates].sort((a,b) => a.area() - b.area())
+        let median_size = sorted[ Math.floor(sorted.length / 2) ]!.area()
+        logs?.push("Median size:"+median_size)
         for (const vertex of vertex_candidates){
-            if (Math.abs(avg_size - vertex.area()) <= avg_size * GROUP_VERTEX_THRESHOLD)
+            if (Math.abs(median_size - vertex.area()) <= median_size * GROUP_VERTEX_THRESHOLD)
                 accepted_vertices.push(vertex)
             else{
                 logs?.push("Rejected a vertex")
@@ -240,7 +240,7 @@ export function detect_graphs_from_drawing(drawing : Drawing, logs? : string[]):
         }
             
         else
-            edge_candidates.push(... res.strokes) //TODO: stroke circles land here!
+            edge_candidates.push(... res.strokes)
     }
     filter_vertices(vertex_candidates, edge_candidates,{height_width: true, drawing_area: drawing.area()})
     vertex_candidates = filter_vertices_by_area(vertex_candidates, edge_candidates)
@@ -249,7 +249,7 @@ export function detect_graphs_from_drawing(drawing : Drawing, logs? : string[]):
         implied_vertices = true
     if (edge_candidates.length == 0)
         return []
-    utils.merge_overlapping_vertices(vertex_candidates)
+    vertex_candidates = utils.merge_overlapping_vertices(vertex_candidates)
     let graph = utils.vertices_within_distance_of_edge(VERTEX_EDGE_DISTANCE_THRESHOLD, edge_candidates, vertex_candidates)
     // Start of new V2 features
     utils.edges_incident_to_edges(edge_candidates, graph, implied_vertices)
