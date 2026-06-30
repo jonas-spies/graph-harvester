@@ -363,7 +363,7 @@ export class Stroke{
     stroke: mupdf.StrokeState
     start: Point
     end: Point
-    control_pts?: {x: number, y: number} []
+    control_pts?: Point []
 
     start_incident?: (Stroke | Path_Metadata)
     end_incident?: (Stroke | Path_Metadata)
@@ -460,6 +460,31 @@ export class Stroke{
                 3*u*t*t*p2.y +
                 t*t*t*p3.y
         }
+    }
+
+    static sub_curve_from_bezier(curve: Stroke, split_t: number): {left: Stroke, right: Stroke}{
+        if (curve.type != "curve")
+            throw new Error("Trying to split a curve that is actually a straight line")
+        if (curve.control_pts?.length !== 2)
+            throw new Error("Trying to split a curve with an invalid set of control points")
+        if (split_t > 1 || split_t < 0)
+            throw new Error("Trying to split a curve in a point that is not on the curve")
+        const p0 = curve.start
+        const p1 = curve.control_pts[0]!
+        const p2 = curve.control_pts[1]!
+        const p3 = curve.end
+        // First level interpolation
+        const p_01 = {x : (1-split_t) * p0.x + split_t* p1.x, y: (1-split_t) * p0.y + split_t* p1.y} 
+        const p_12 = {x : (1-split_t) * p1.x + split_t* p2.x, y: (1-split_t) * p1.y + split_t* p2.y} 
+        const p_23 = {x : (1-split_t) * p2.x + split_t* p3.x, y: (1-split_t) * p2.y + split_t* p3.y} 
+        // Second level interpolation
+        const p_012 = {x : (1-split_t) * p_01.x + split_t* p_12.x, y: (1-split_t) * p_01.y + split_t* p_12.y} 
+        const p_123 = {x : (1-split_t) * p_12.x + split_t* p_23.x, y: (1-split_t) * p_12.y + split_t* p_23.y} 
+        // Third level interpolation
+        const p_0123 = {x : (1-split_t) * p_012.x + split_t* p_123.x, y: (1-split_t) * p_012.y + split_t* p_123.y} 
+        const left = new Stroke("curve", curve.stroke, [p0, p_01, p_012, p_0123])
+        const right = new Stroke("curve", curve.stroke, [p_0123, p_123, p_23, p3])
+        return {left, right}
     }
 }
 

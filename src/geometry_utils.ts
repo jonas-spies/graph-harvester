@@ -375,8 +375,19 @@ export function split_edges_with_middle_vertex(graph: Map<Path_Metadata, Stroke[
 
             const p1 = edge.walk_along_edge(left.t)
             const p2 = edge.walk_along_edge(right.t)
-
-            const segment = new Stroke("line", edge.stroke, [p1,p2])
+            let segment: Stroke
+            if (edge.type== "line")
+                segment = new Stroke("line", edge.stroke, [p1,p2])
+            else{
+                if (left.t >= 1)
+                    segment = new Stroke("curve", edge.stroke, [edge.end, edge.end, edge.end, edge.end]) 
+                else{
+                    const first_split = Stroke.sub_curve_from_bezier(edge, left.t)
+                    const new_t = Math.max(0, Math.min(1,(right.t - left.t) / (1 - left.t)) ) // ensures new t is between 0 and 1
+                    const second_split = Stroke.sub_curve_from_bezier(first_split.right, new_t)
+                    segment = second_split.left
+                }
+            }
             new_edges.push(segment)
 
 
