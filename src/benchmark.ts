@@ -5,7 +5,7 @@ import { execute_file } from "./pipeline.js";
 import { exportGraph, exportGraphAsAdjacency } from "./pdf_extraction.js";
 
 const benchmark_directory = "test_files/benchmark/TP"
-const result_directory = "test_files/benchmark/V3/"
+const result_directory = "test_files/benchmark/V4/"
 const matched_flag = "Matched with a graph"
 const TP_but_not_A_grade = "test_files/benchmark/TP_but_not_A_grade" // obsolete
 
@@ -93,6 +93,10 @@ export function benchmark(){
                     break
                 }          
             }
+            if (!ref.metadata.some(x => x == matched_flag)){
+                logs.push("Couldn't match graph:" +ref.metadata[0])
+            }
+                
         }
         for(var i = 0; i<graphs.length; i++){
             let graph = graphs[i]!

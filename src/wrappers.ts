@@ -227,6 +227,7 @@ export class Graph{
             if (visited.has(vertex)) // already part of some graph, so skip
                 continue
             const graph = new Graph()
+            graph.metadata = this.metadata
             const vertices: Vertex[] = [vertex]
             while (vertices.length > 0){ // actual DFS
                 let next = vertices.pop()!

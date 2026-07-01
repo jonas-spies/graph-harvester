@@ -79,9 +79,25 @@ export function transform_point(ctm: mupdf.Matrix, x: number, y: number): {x: nu
 }
 
 
+/** Assuming the first_stroke ends in the second_stroke's start point, it will calculate the inside angle at that point in degree. If that angle is less than 45° and both strokes are about equial in length, it will be considered an arrow tip */
+function detect_arrow_head(first_stroke: Stroke, second_stroke: Stroke): boolean{
+    const u = {x: first_stroke.start.x - first_stroke.end.x, y: first_stroke.start.y - first_stroke.end.y}
+    const v = {x: second_stroke.end.x - second_stroke.start.x, y: second_stroke.end.y - second_stroke.start.y}
+    const dot = u.x * v.x + u.y * v.y
+    const lenU = Math.hypot(u.x, u.y)
+    const lenV = Math.hypot(v.x, v.y)
+    if (lenU === 0 || lenV === 0)
+        return false
+    if (lenU > 2* lenV || lenV > 2* lenU) //we assume an arrow to be symmetrical
+        return false
+    const cosine = Math.max(-1, Math.min(1, dot / (lenU * lenV))) // prevent floating errors outside of [-1,1]
+    //const angle = Math.acos(cosine) * 180 / Math.PI // actually not needed for this check
+    return cosine >= 0.70710678118 // = cos(45°). Higher means tighter angle
+}
+
 /** Takes a path object and returns a list of all its strokes, as well as a boolean indicating if the path formed a closed loop
 @warning if there is even just a fraction of a pixel between the start and endpoint, it won't be considered a closed loop */
-export function break_path_into_strokes(path: Path_Metadata, logs?: string[]): {strokes: Stroke[], is_closed: boolean, shape: "circle" | "rectangle" | "path"} {
+export function break_path_into_strokes(path: Path_Metadata, logs?: string[]): {strokes: Stroke[], is_vertex_candidate: boolean, shape: "circle" | "rectangle" | "path"} {
     const is_fill = path.type == "fill"
     var stroke_segments: Stroke[] = []
     var is_closed = false
@@ -132,7 +148,22 @@ export function break_path_into_strokes(path: Path_Metadata, logs?: string[]): {
         is_closed = true
     if (!is_closed)
         shape = "path"
-    return {strokes: stroke_segments, is_closed: is_closed, shape: shape}
+    // Detect Arrows
+    let is_arrow = false
+    if (stroke_segments.length >= 2){
+        for (var i = 0; i < stroke_segments.length -1; i++){
+            let s1 = stroke_segments[i]!
+            let s2 = stroke_segments[i+1]!
+            if (detect_arrow_head(s1, s2)){
+                is_arrow = true
+                break
+            }
+        }
+        if (!is_arrow)
+            is_arrow = detect_arrow_head(stroke_segments[stroke_segments.length -1]!, stroke_segments[0]!)
+    }
+
+    return {strokes: stroke_segments, is_vertex_candidate: (!is_arrow && is_closed), shape: shape}
 }
 
 
@@ -149,7 +180,33 @@ export function scale_bb_by_factor(bb: mupdf.Rect, factor: number): mupdf.Rect{
     return [minX, minY, maxX, maxY] as mupdf.Rect
 }
 
-
+export function is_brighter_than(vertex: Path_Metadata, threshold: number): boolean{
+    const color = vertex.color
+    if (!color)
+        return false
+    switch(vertex.colorSpace.getType()){
+        case "Gray":
+            return color[0]! >= threshold
+        case "RGB":
+        case "BGR":
+            return color[0] >= threshold && color[1]! >= threshold && color[2]! >= threshold
+        case "CMYK":
+            const cmyk_threshold = 1 - threshold
+            return color[0] <= cmyk_threshold && color[1]! <= cmyk_threshold && color[2]! <= cmyk_threshold && color[3]! <= cmyk_threshold
+        case "Lab":
+            const lab_threshold = threshold * 100
+            return color[0] >= lab_threshold
+        case "Indexed":
+            return false
+        case "Separation":
+            const sep_threshold = 1 - threshold
+            if (color.length === 1)
+                return color[0] <= sep_threshold
+            else return false
+        default:
+            return false
+    }
+}
 
 // OLD VERSION
 /*export function vertices_within_distance_of_edge(distance: number, edges: Stroke[], vertices: Path_Metadata[]): Map<Path_Metadata, Stroke[]>{

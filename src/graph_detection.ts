@@ -10,16 +10,21 @@ const DRAWING_AREA_THRESHOLD = 0.2
 // Determines by what percentage vertices of the same cluster may be apart in size
 const GROUP_VERTEX_THRESHOLD = 0.3
 const MIN_CLUSTER_SIZE = 5
+// Determines if a vertex is considered visible (if not, it will be rejected)
+const LUMINANCE_THRESHOLD = 0.97
+const ALPHA_THRESHOLD = 0.1
 
 
 /** Uses various checks to turn all vertex candidates that fail one of them into edge candidates
  * @CHECK Vertices must be somewhat shaped like a square (height / width ratio)
- * @CHECK Vertices must be somewhat small compared to the overall drawing*/
-function filter_vertices(vertex_candidates: Path_Metadata[], edge_candidates: Stroke[], params: {height_width: boolean, drawing_area:number}){
+ * @CHECK Vertices must be somewhat small compared to the overall drawing
+ * @CHECK Vertices must be visible.*/
+function filter_vertices(vertex_candidates: Path_Metadata[], edge_candidates: Stroke[], params: {height_width: boolean, drawing_area:number, luminance: boolean}, logs?: string[]){
     const n = vertex_candidates.length
     for (var i = 0; i < n; i++){
         let vertex = vertex_candidates.shift()
         var is_good = true
+        var full_reject = false
         if (!vertex)
             throw new Error("illegal array length")
         // Filter vertices that are not "square-like" enough
@@ -32,13 +37,20 @@ function filter_vertices(vertex_candidates: Path_Metadata[], edge_candidates: St
         if(params.drawing_area != 0  && vertex.area() >= params.drawing_area * DRAWING_AREA_THRESHOLD){
             is_good = false
         }
-        // Filter overlapping vertices
+        // Filter invisible vertices
+        if (params.luminance){
+            if (vertex.alpha <= ALPHA_THRESHOLD || utils.is_brighter_than(vertex, LUMINANCE_THRESHOLD)){
+                logs?.push("Filtering vertex:\n"+ vertex + "\n Alpha: " +vertex.alpha + " Color: "+ vertex.colorSpace.getType() + ", " +vertex.color)
+                is_good = false
+                full_reject = true
+            }
+        }
 
 
         // Code that actually does something with the flag
         if (is_good)
             vertex_candidates.push(vertex)            
-        else
+        else if(!full_reject)
             edge_candidates.push(... utils.break_path_into_strokes(vertex).strokes)   
     }
 }
@@ -234,15 +246,14 @@ export function detect_graphs_from_drawing(drawing : Drawing, logs? : string[]):
     //logs?.push("Initializing Graph Detection for new Drawing...\n")
     for (var path of drawing.paths){
         let res = utils.break_path_into_strokes(path)
-        if (res.is_closed){
+        if (res.is_vertex_candidate){
             path.shape = res.shape
             vertex_candidates.push(path)
         }
-            
         else
             edge_candidates.push(... res.strokes)
     }
-    filter_vertices(vertex_candidates, edge_candidates,{height_width: true, drawing_area: drawing.area()})
+    filter_vertices(vertex_candidates, edge_candidates,{height_width: true, drawing_area: drawing.area(), luminance: true})
     vertex_candidates = filter_vertices_by_area(vertex_candidates, edge_candidates)
     var implied_vertices = false
     if (vertex_candidates.length == 0)
