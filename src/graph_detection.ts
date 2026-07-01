@@ -30,15 +30,19 @@ function filter_vertices(vertex_candidates: Path_Metadata[], edge_candidates: St
         // Filter vertices that are not "square-like" enough
         if(params.height_width){
             const ratio = vertex.height_width_ratio()
-            if (!(ratio > VERTEX_HEIGHT_WIDTH_RATIO_THRESHOLD && ratio < (1/VERTEX_HEIGHT_WIDTH_RATIO_THRESHOLD)))
+            if (!(ratio > VERTEX_HEIGHT_WIDTH_RATIO_THRESHOLD && ratio < (1/VERTEX_HEIGHT_WIDTH_RATIO_THRESHOLD))){
+                logs?.push("Filtering vertex:\n"+vertex + " Height / Width Ratio: "+ratio)
                 is_good = false
+            }
+                
         }
         // Filter Large Vertices
-        if(params.drawing_area != 0  && vertex.area() >= params.drawing_area * DRAWING_AREA_THRESHOLD){
+        else if(params.drawing_area != 0  && vertex.area() >= params.drawing_area * DRAWING_AREA_THRESHOLD){
+            logs?.push("Filtering vertex:\n"+vertex + " Area: "+vertex.area())
             is_good = false
         }
         // Filter invisible vertices
-        if (params.luminance){
+        else if (params.luminance){
             if (vertex.alpha <= ALPHA_THRESHOLD || utils.is_brighter_than(vertex, LUMINANCE_THRESHOLD)){
                 logs?.push("Filtering vertex:\n"+ vertex + "\n Alpha: " +vertex.alpha + " Color: "+ vertex.colorSpace.getType() + ", " +vertex.color)
                 is_good = false
@@ -66,9 +70,10 @@ function filter_vertices_by_area(vertex_candidates: Path_Metadata[], edge_candid
         return []
     // CASE 1: enough vertex candidates
     if (vertex_candidates.length >= 2*MIN_CLUSTER_SIZE){
-        logs?.push("Case 1: Found enough intial vertices")
+        logs?.push("Case 1: Found "+ vertex_candidates.length +" intial vertices")
         // Clustering
         for (const vertex of vertex_candidates){
+            logs?.push("Vertex Area:"+ vertex.area() + " Color:" +vertex.colorSpace.getType() + ", " + vertex.color + " Alpha: "+ vertex.alpha+ " "+ vertex)
             var cluster_found = false
             for (const cluster of clusters){
                 let avg_size: number = 0
@@ -100,11 +105,13 @@ function filter_vertices_by_area(vertex_candidates: Path_Metadata[], edge_candid
             }
             else if(cluster.length >= MIN_CLUSTER_SIZE){ // Compute avg size for size check
                 var other_avg_size = 0
-                const others = vertex_candidates.filter(v => cluster.some(x => x === v))
+                const others = vertex_candidates.filter(v => !cluster.some(x => x === v))
+                logs?.push("Others: " + others.length +" vertices")
                 others.forEach(x => {
                     other_avg_size += x.area()
                 })
-                other_avg_size /= others.length
+                other_avg_size = other_avg_size / others.length
+                logs?.push("Other avg Size: "+other_avg_size)
                 // Use avg size to filter vertices based on size
                 for (const v of cluster){
                     if (v.area() / other_avg_size >= 1){ // v is larger than average
@@ -254,13 +261,14 @@ export function detect_graphs_from_drawing(drawing : Drawing, logs? : string[]):
             edge_candidates.push(... res.strokes)
     }
     filter_vertices(vertex_candidates, edge_candidates,{height_width: true, drawing_area: drawing.area(), luminance: true})
-    vertex_candidates = filter_vertices_by_area(vertex_candidates, edge_candidates)
+    vertex_candidates = filter_vertices_by_area(vertex_candidates, edge_candidates) // first run to filter outliers
+    vertex_candidates = filter_vertices_by_area(vertex_candidates, edge_candidates) // second run to filter vertices with large bounding boxes
     var implied_vertices = false
     if (vertex_candidates.length == 0)
         implied_vertices = true
     if (edge_candidates.length == 0)
         return []
-    vertex_candidates = utils.merge_overlapping_vertices(vertex_candidates)
+    vertex_candidates = utils.merge_overlapping_vertices(vertex_candidates, logs)
     let graph = utils.vertices_within_distance_of_edge(VERTEX_EDGE_DISTANCE_THRESHOLD, edge_candidates, vertex_candidates)
     // Start of new V2 features
     utils.edges_incident_to_edges(edge_candidates, graph, implied_vertices)

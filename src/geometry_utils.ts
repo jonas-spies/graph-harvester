@@ -41,7 +41,7 @@ export function merge_bounding_boxes(drawings: Drawing[]): Drawing[]{
 
 /** Practically a 1:1 copy of merge_bounding_boxes(), just for vertex candidates, and it modifies the passed array instead of returning a new array. 
  * @warning The function loses the Path information of the merged vertices.  
- * @warning just like mefrge_bounding_boxes(), it may need to be exectued repeatedly until convergence*/
+ * @warning just like merge_bounding_boxes(), it may need to be exectued repeatedly until convergence*/
 export function merge_overlapping_vertices(vertex_candidates: Path_Metadata[], logs?: string[]){
     const tree = new RBush<Path_Metadata>
     var result : Path_Metadata[] = []
@@ -63,7 +63,7 @@ export function merge_overlapping_vertices(vertex_candidates: Path_Metadata[], l
                 let merged = Path_Metadata.merge(cluster, n)
                 result[index] = merged
                 already_used.set(n, index)
-                logs?.push("Merged two overlapping vertices")
+                logs?.push("Merged two overlapping vertices..\nV1: " +vertex + "\nV2: "+ n)
             }
         }
     }
@@ -92,7 +92,7 @@ function detect_arrow_head(first_stroke: Stroke, second_stroke: Stroke): boolean
         return false
     const cosine = Math.max(-1, Math.min(1, dot / (lenU * lenV))) // prevent floating errors outside of [-1,1]
     //const angle = Math.acos(cosine) * 180 / Math.PI // actually not needed for this check
-    return cosine >= 0.70710678118 // = cos(45°). Higher means tighter angle
+    return cosine >= 0.70710678118 // 0.70710678118 = cos(45°). Higher means tighter angle
 }
 
 /** Takes a path object and returns a list of all its strokes, as well as a boolean indicating if the path formed a closed loop
