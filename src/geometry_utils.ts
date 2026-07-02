@@ -5,6 +5,8 @@ import * as mupdf from "mupdf"
 
 // Approximate every bezier curve by 30 straight line segments
 const STROKE_APPROXIMATION_RESOLUTION = 30
+// Determines how strongly the bounding box should be scaled when checking for overlapping vertices. 0.05 narrows it down to close to the center, which seems to have the best result
+const MERGE_OVERLAP_FACTOR = 0.05
 
 /**Merges drawings by overlapping bounding boxes
  * @returns a list of Drawings, so that each element exclusively contains the Path objects of one or more original Drawing.
@@ -43,12 +45,49 @@ export function merge_bounding_boxes(drawings: Drawing[]): Drawing[]{
  * @warning The function loses the Path information of the merged vertices.  
  * @warning just like merge_bounding_boxes(), it may need to be exectued repeatedly until convergence*/
 export function merge_overlapping_vertices(vertex_candidates: Path_Metadata[], logs?: string[]){
+    /** Auxiliary function that helps with exact calculation for circles, but doesn't seem needed*/
+   function do_circular_vertices_overlap(base: Path_Metadata, circle: Path_Metadata): boolean {
+        // 1. Calculate a radius for Base
+        let r1: number;
+        if (base.type === "stroke" && base.stroke && base.stroke.getLineWidth() > 5) {
+            // Thick stroke dot style
+            r1 = base.stroke.getLineWidth() / 2;
+        } else {
+            // Bézier loop or filled circle style
+            const w = base.maxX - base.minX;
+            const h = base.maxY - base.minY;
+            r1 = ((w + h) / 4) * 1.0; // Multiply by 85% to give some lenience
+        }
+
+        // 2. Calculate a radius for Circle
+        let r2: number;
+        if (circle.type === "stroke" && circle.stroke && circle.stroke.getLineWidth() > 5) {
+            // Thick stroke dot style
+            r2 = circle.stroke.getLineWidth() / 2;
+        } else {
+            // Bézier loop or filled circle style
+            const w = circle.maxX - circle.minX;
+            const h = circle.maxY - circle.minY;
+            r2 = ((w + h) / 4) * 1.0; // Multiply by 85% to give some lenience
+        }
+        const distance = euclidean_distance(circle.center(), base.center());
+        const radiusSum = r1 + r2;
+        return distance <= (radiusSum * radiusSum);
+    }
     const tree = new RBush<Path_Metadata>
     var result : Path_Metadata[] = []
     var already_used: Map<Path_Metadata, number> = new Map()
     tree.load(vertex_candidates)
     for (const vertex of vertex_candidates){
-        let neighbors = tree.search(vertex).filter(x => !already_used.has(x) && x !== vertex)
+        const bounds = scale_bb_by_factor(vertex.getBounds(), MERGE_OVERLAP_FACTOR)
+        const neighbors = tree.search({minX: bounds[0], minY: bounds[1], maxX: bounds[2], maxY: bounds[3]}).filter(x => {
+            if (!already_used.has(x) && x !== vertex){
+                if (vertex.shape === "circle" && x.shape === "circle")
+                    return true //do_circular_vertices_overlap(vertex, x)
+                else return true
+            }
+            else return false
+        })
         var index = already_used.get(vertex)
         if (index === undefined){
             index = result.length
@@ -70,6 +109,7 @@ export function merge_overlapping_vertices(vertex_candidates: Path_Metadata[], l
     return result
 }
 
+
 /**Applies a matrix transformation on the point, returning its new coordinates*/
 export function transform_point(ctm: mupdf.Matrix, x: number, y: number): {x: number, y: number}{
     return {
@@ -80,20 +120,52 @@ export function transform_point(ctm: mupdf.Matrix, x: number, y: number): {x: nu
 
 
 /** Assuming the first_stroke ends in the second_stroke's start point, it will calculate the inside angle at that point in degree. If that angle is less than 45° and both strokes are about equial in length, it will be considered an arrow tip */
-function detect_arrow_head(first_stroke: Stroke, second_stroke: Stroke): boolean{
-    const u = {x: first_stroke.start.x - first_stroke.end.x, y: first_stroke.start.y - first_stroke.end.y}
-    const v = {x: second_stroke.end.x - second_stroke.start.x, y: second_stroke.end.y - second_stroke.start.y}
+function detect_arrow_head(first_stroke: Stroke, second_stroke: Stroke, logs?: string[]): boolean{
+    let u: Point
+    let v: Point
+    u = {x: first_stroke.start.x - first_stroke.end.x, y: first_stroke.start.y - first_stroke.end.y}
+    v = {x: second_stroke.end.x - second_stroke.start.x, y: second_stroke.end.y - second_stroke.start.y}
     const dot = u.x * v.x + u.y * v.y
-    const lenU = Math.hypot(u.x, u.y)
-    const lenV = Math.hypot(v.x, v.y)
+    const lenU = Math.hypot(first_stroke.start.x - first_stroke.end.x, first_stroke.start.y - first_stroke.end.y)
+    const lenV = Math.hypot(second_stroke.end.x - second_stroke.start.x, second_stroke.end.y - second_stroke.start.y)
     if (lenU === 0 || lenV === 0)
         return false
     if (lenU > 2* lenV || lenV > 2* lenU) //we assume an arrow to be symmetrical
         return false
     const cosine = Math.max(-1, Math.min(1, dot / (lenU * lenV))) // prevent floating errors outside of [-1,1]
     //const angle = Math.acos(cosine) * 180 / Math.PI // actually not needed for this check
+    logs?.push("Cosine: "+ cosine)
     return cosine >= 0.70710678118 // 0.70710678118 = cos(45°). Higher means tighter angle
 }
+// Version that more accurately handles curves, but performs worse for some reason
+/*function detect_arrow_head(first_stroke: Stroke, second_stroke: Stroke, logs?: string[]): boolean{
+    let u: Point
+    let v: Point
+    if (first_stroke.type = "line")
+        u = {x: first_stroke.start.x - first_stroke.end.x, y: first_stroke.start.y - first_stroke.end.y}
+    else{
+        const target = first_stroke.walk_along_edge(0.85)
+        u = {x: first_stroke.start.x - target.x, y: first_stroke.start.y - target.y}
+    }
+
+    if (second_stroke.type == "line")
+        v = {x: second_stroke.end.x - second_stroke.start.x, y: second_stroke.end.y - second_stroke.start.y}
+    else{
+        const target = second_stroke.walk_along_edge(0.15)
+        v = {x: second_stroke.start.x - target.x, y: second_stroke.start.y - target.y}
+    }
+    const dot = u.x * v.x + u.y * v.y
+    const lenU = Math.hypot(first_stroke.start.x - first_stroke.end.x, first_stroke.start.y - first_stroke.end.y)
+    const lenV = Math.hypot(second_stroke.end.x - second_stroke.start.x, second_stroke.end.y - second_stroke.start.y)
+    if (lenU === 0 || lenV === 0)
+        return false
+    if (lenU > 2* lenV || lenV > 2* lenU) //we assume an arrow to be symmetrical
+        return false
+    const cosine = Math.max(-1, Math.min(1, dot / (lenU * lenV))) // prevent floating errors outside of [-1,1]
+    //const angle = Math.acos(cosine) * 180 / Math.PI // actually not needed for this check
+    logs?.push("Cosine: "+ cosine)
+    return cosine >= 0.70710678118 // 0.70710678118 = cos(45°). Higher means tighter angle
+}*/
 
 /** Takes a path object and returns a list of all its strokes, as well as a boolean indicating if the path formed a closed loop
 @warning if there is even just a fraction of a pixel between the start and endpoint, it won't be considered a closed loop */
@@ -106,7 +178,7 @@ export function break_path_into_strokes(path: Path_Metadata, logs?: string[]): {
     var loop_start: {x: number, y: number} | undefined
     var strokeStyle = is_fill?  default_stroke : path.stroke
     var ctm = path.ctm
-    
+    logs?.push("Breaking new path object: "+ path)
         
     var path_walker = {
         moveTo: function (x: number, y: number) {
@@ -160,7 +232,7 @@ export function break_path_into_strokes(path: Path_Metadata, logs?: string[]): {
             }
         }
         if (!is_arrow)
-            is_arrow = detect_arrow_head(stroke_segments[stroke_segments.length -1]!, stroke_segments[0]!)
+            is_arrow = detect_arrow_head(stroke_segments[stroke_segments.length -1]!, stroke_segments[0]!, logs)
     }
 
     return {strokes: stroke_segments, is_vertex_candidate: (!is_arrow && is_closed), shape: shape}
@@ -207,38 +279,6 @@ export function is_brighter_than(vertex: Path_Metadata, threshold: number): bool
             return false
     }
 }
-
-// OLD VERSION
-/*export function vertices_within_distance_of_edge(distance: number, edges: Stroke[], vertices: Path_Metadata[]): Map<Path_Metadata, Stroke[]>{
-    const map = new Map<Path_Metadata, Stroke[]>()
-    const n = edges.length
-    const points = [... edges.map(x => x.start), ... edges.map(x => x.end)] // First n indices are of type start, indices from n, ..., 2n-1 are of type end
-    const tree = new KDBush(2*n)
-    for (const {x,y} of points)
-        tree.add(x,y)
-    tree.finish()
-    for (const v of vertices){
-        let bb = scale_bb_by_factor(v.bounds, distance)
-
-        // Make a query for all points within distance of bounding box of v
-        const foundIds = tree.range(bb[0], bb[1], bb[2], bb[3])
-        const foundEdges = foundIds.map(x => {
-            if (x >= n){ // Type end
-                let edge = edges[x-n]!
-                edge.end_incident = v
-                return edge
-            }         
-            else {  //Type Start
-                let edge = edges[x]!
-                edge.start_incident = v
-                return edge
-                
-            }
-        })
-        map.set(v, foundEdges)
-    }
-    return map
-}*/
 
 /**Calculates the euclidean distance between two points without taking the root */
 function euclidean_distance(p1: Point, p2: Point){

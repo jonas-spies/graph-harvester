@@ -4,7 +4,7 @@ import * as utils from "./geometry_utils.js"
 // Only keep vertices with a ratio between that and its inverse
 const VERTEX_HEIGHT_WIDTH_RATIO_THRESHOLD = 0.5
 // Only consider edges connected to a vertex, if the edge overlaps the vertices bounding box, scaled by this
-const VERTEX_EDGE_DISTANCE_THRESHOLD = 1.3
+const VERTEX_EDGE_DISTANCE_THRESHOLD = 1.07 // best results between 106% and 109% 
 // Filter vertices that take up at least that percentage of the drawing's bounding box
 const DRAWING_AREA_THRESHOLD = 0.2
 // Determines by what percentage vertices of the same cluster may be apart in size
@@ -37,12 +37,12 @@ function filter_vertices(vertex_candidates: Path_Metadata[], edge_candidates: St
                 
         }
         // Filter Large Vertices
-        else if(params.drawing_area != 0  && vertex.area() >= params.drawing_area * DRAWING_AREA_THRESHOLD){
+        if(params.drawing_area != 0  && vertex.area() >= params.drawing_area * DRAWING_AREA_THRESHOLD){
             logs?.push("Filtering vertex:\n"+vertex + " Area: "+vertex.area())
             is_good = false
         }
         // Filter invisible vertices
-        else if (params.luminance){
+        if (params.luminance){
             if (vertex.alpha <= ALPHA_THRESHOLD || utils.is_brighter_than(vertex, LUMINANCE_THRESHOLD)){
                 logs?.push("Filtering vertex:\n"+ vertex + "\n Alpha: " +vertex.alpha + " Color: "+ vertex.colorSpace.getType() + ", " +vertex.color)
                 is_good = false
@@ -164,7 +164,10 @@ function filter_vertices_by_area(vertex_candidates: Path_Metadata[], edge_candid
         res += v.area() +", "
     }
     logs?.push(res)
-    return accepted_vertices
+    if (accepted_vertices.length < vertex_candidates.length) // Recursion until convergence
+        return filter_vertices_by_area(accepted_vertices, edge_candidates, logs)
+    else
+        return accepted_vertices
 }
 
 
@@ -248,11 +251,10 @@ function build_graphs_from_map(map: Map<Path_Metadata, Stroke[]>, logs?: string[
 export function detect_graphs_from_drawing(drawing : Drawing, logs? : string[]): Graph[]{
     // Finding Candidates
     let vertex_candidates: Path_Metadata[] = [] 
-    let stroke_paths: Path_Metadata[] = []
     var edge_candidates: Stroke[] = []
     //logs?.push("Initializing Graph Detection for new Drawing...\n")
     for (var path of drawing.paths){
-        let res = utils.break_path_into_strokes(path)
+        let res = utils.break_path_into_strokes(path, logs)
         if (res.is_vertex_candidate){
             path.shape = res.shape
             vertex_candidates.push(path)
@@ -261,14 +263,13 @@ export function detect_graphs_from_drawing(drawing : Drawing, logs? : string[]):
             edge_candidates.push(... res.strokes)
     }
     filter_vertices(vertex_candidates, edge_candidates,{height_width: true, drawing_area: drawing.area(), luminance: true})
-    vertex_candidates = filter_vertices_by_area(vertex_candidates, edge_candidates) // first run to filter outliers
-    vertex_candidates = filter_vertices_by_area(vertex_candidates, edge_candidates) // second run to filter vertices with large bounding boxes
+    vertex_candidates = filter_vertices_by_area(vertex_candidates, edge_candidates)
     var implied_vertices = false
     if (vertex_candidates.length == 0)
         implied_vertices = true
     if (edge_candidates.length == 0)
         return []
-    vertex_candidates = utils.merge_overlapping_vertices(vertex_candidates, logs)
+    vertex_candidates = utils.merge_overlapping_vertices(vertex_candidates)
     let graph = utils.vertices_within_distance_of_edge(VERTEX_EDGE_DISTANCE_THRESHOLD, edge_candidates, vertex_candidates)
     // Start of new V2 features
     utils.edges_incident_to_edges(edge_candidates, graph, implied_vertices)

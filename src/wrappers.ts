@@ -3,11 +3,11 @@ import * as utils from './geometry_utils.js'
 
 
 export const default_stroke = new mupdf.StrokeState({
-                    lineCap: "Square",
+                    lineCap: "Butt",
                     lineJoin: "Bevel",
-                    lineWidth: 2.0,
+                    lineWidth: 1.0,
                     miterLimit: 1.414,
-                    dashPhase: 11
+                    dashPhase: 0
                     })
 
 
