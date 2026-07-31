@@ -566,8 +566,7 @@ export function mean(values: number[]): number {
 
 /** Checks for each edge if it is an orphan or half orphan, then checks if any endpoints of another edge lie within range.s
  * If exactly one edge is incident, this will become its neighbor. If two or more edges are incident, this will be interpreted as an implied vertex.
- * @TODO make it more robust in cases where a neighboring edge is actually already incident to a vertex or edge at that endpoint (currently would drop that incidence) 
- * @TODO what happens if we dont imply vertices and multiple edges meet in a common endpoint?*/
+ * @TODO make it more robust in cases where a neighboring edge is actually already incident to a vertex or edge at that endpoint (currently would drop that incidence) */
 export function edges_incident_to_edges(edges: Stroke[], graph: Map<Path_Metadata, Stroke[]>, implied_vertices: boolean, logs? : string[]){ // TODO? filter based on StrokeStyle for the most likely candidate
     function link_edges(e1: Stroke, s1: boolean, e2: Stroke, s2: boolean){ // Auxiliary function
         if (s1){
