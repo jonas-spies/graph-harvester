@@ -7,6 +7,9 @@ import * as mupdf from "mupdf"
 const STROKE_APPROXIMATION_RESOLUTION = 30
 // Determines how strongly the bounding box should be scaled when checking for overlapping vertices. 0.05 narrows it down to close to the center, which seems to have the best result
 const MERGE_OVERLAP_FACTOR = 0.05
+// Rejects any object as vertex candidate, if it contains too many bezier curves. Optimal Range in [8-17]
+const MAX_CURVES_PER_VERTEX = 8
+const MATCH_MULTIPLE_EDGES = true
 
 /**Merges drawings by overlapping bounding boxes
  * @returns a list of Drawings, so that each element exclusively contains the Path objects of one or more original Drawing.
@@ -173,6 +176,7 @@ export function break_path_into_strokes(path: Path_Metadata, logs?: string[]): {
     const is_fill = path.type == "fill"
     var stroke_segments: Stroke[] = []
     var is_closed = false
+    var bezier_counter = 0
     var shape: "circle" | "rectangle" | "path" = "rectangle"
     var last: {x: number, y: number} | undefined
     var loop_start: {x: number, y: number} | undefined
@@ -200,6 +204,7 @@ export function break_path_into_strokes(path: Path_Metadata, logs?: string[]): {
                 throw new Error("curveTo without moveTo")
             if (shape != "circle")
                 shape = "circle"
+            bezier_counter += 1
             var p1 = transform_point(ctm, x1, y1)
             var p2 = transform_point(ctm, x2, y2)
             var p3 = transform_point(ctm, x3, y3)
@@ -235,7 +240,7 @@ export function break_path_into_strokes(path: Path_Metadata, logs?: string[]): {
             is_arrow = detect_arrow_head(stroke_segments[stroke_segments.length -1]!, stroke_segments[0]!, logs)
     }
 
-    return {strokes: stroke_segments, is_vertex_candidate: (!is_arrow && is_closed), shape: shape}
+    return {strokes: stroke_segments, is_vertex_candidate: (!is_arrow && is_closed && (bezier_counter <= MAX_CURVES_PER_VERTEX)), shape: shape}
 }
 
 
@@ -523,13 +528,20 @@ export function split_edges_with_middle_vertex(graph: Map<Path_Metadata, Stroke[
 }
 
 
-/**Currently returns true if two StrokeState objects are equivalent, else false */
+/**Returns a similarity score between 0 (completely different) and 5 (identical) */
 function stroke_similarity(a: mupdf.StrokeState, b: mupdf.StrokeState){ //TODO compares two StrokeStyles and gives a similarity score in the end
-    return (
-        a.getLineWidth === b.getLineWidth &&
-        a.getLineCap === b.getLineCap &&
-        a.getLineJoin === b.getLineJoin
-    )
+    let score = 0
+    if (a.getLineWidth === b.getLineWidth)
+        score += 1
+    if (a.getLineCap === b.getLineCap)
+        score += 1
+    if (a.getLineJoin === b.getLineJoin)
+        score += 1
+    if (a.getDashPhase === b.getDashPhase)
+        score += 1
+    if (a.getDashes === b.getDashes)
+        score += 1
+    return score
 }
 
 
@@ -557,13 +569,30 @@ export function mean(values: number[]): number {
  * @TODO make it more robust in cases where a neighboring edge is actually already incident to a vertex or edge at that endpoint (currently would drop that incidence) 
  * @TODO what happens if we dont imply vertices and multiple edges meet in a common endpoint?*/
 export function edges_incident_to_edges(edges: Stroke[], graph: Map<Path_Metadata, Stroke[]>, implied_vertices: boolean, logs? : string[]){ // TODO? filter based on StrokeStyle for the most likely candidate
+    function link_edges(e1: Stroke, s1: boolean, e2: Stroke, s2: boolean){ // Auxiliary function
+        if (s1){
+            e1.start_incident = e2
+            if(s2)
+                e2.start_incident = e1
+            else
+                e2.end_incident = e1
+        }
+        else{
+            e1.end_incident = e2
+            if(s2)
+                e2.start_incident = e1
+            else
+                e2.end_incident = e1
+        }
+    }
     const n = edges.length
     const points = [... edges.map(x => x.start), ... edges.map(x => x.end)] // First n indices are of type start, indices from n, ..., 2n-1 are of type end
     const tree = new KDBush(2*n)
+    const ambiguous_edges = []
     if(logs){
-        logs?.push("Rescuing orphans...\n")
+        //logs?.push("Rescuing orphans...\n")
         for (const edge of edges){
-            logs?.push("Edge [("+ edge.start.x + ", "+edge.start.y + "),( "+ edge.end.x + ", "+ edge.end.y + ")] BEFORE [Start, End]: "+ (edge.start_incident? "true" : "false") + (edge.end_incident? " true" : " false") +"\n")
+            //logs?.push("Edge [("+ edge.start.x + ", "+edge.start.y + "),( "+ edge.end.x + ", "+ edge.end.y + ")] BEFORE [Start, End]: "+ (edge.start_incident? "true" : "false") + (edge.end_incident? " true" : " false") +"\n")
         }
     }
     for (const {x,y} of points)
@@ -584,9 +613,9 @@ export function edges_incident_to_edges(edges: Stroke[], graph: Map<Path_Metadat
         if ( (start && edge.start_incident) || (!start && edge.end_incident))
             continue
         else
-            logs?.push("Trying to rescue an orphan at point "+ point.x + ", "+point.y +" for Edge "+ edge.start.x + ", "+edge.start.y + " | "+ edge.end.x + ", "+ edge.end.y + " [Start, End]: "+ (edge.start_incident? "true" : "false") + (edge.end_incident? " true" : " false") +"\n")          
+            //logs?.push("Trying to rescue an orphan at point "+ point.x + ", "+point.y +" for Edge "+ edge.start.x + ", "+edge.start.y + " | "+ edge.end.x + ", "+ edge.end.y + " [Start, End]: "+ (edge.start_incident? "true" : "false") + (edge.end_incident? " true" : " false") +"\n")          
         var indices = tree.within(point.x, point.y, edge.stroke.getLineWidth())
-        logs?.push("Found "+indices.length + " initial hits \n")
+        //logs?.push("Found "+indices.length + " initial hits \n")
 
         indices = indices.filter( (value, key) => { // FILTER: 1) endpoints that are not orphaned. 2) endpoints that are incident to their other end.
             if (value == i || value == i + n || value == i - n) // Self hit
@@ -601,21 +630,16 @@ export function edges_incident_to_edges(edges: Stroke[], graph: Map<Path_Metadat
             }
             return true
         })
-        logs?.push("After filtering, "+indices.length + " hits remain\n")
+        //logs?.push("After filtering, "+indices.length + " hits remain\n")
         for (const index of indices){
             let edge = edges[index < n? index : index -n]!
-            logs?.push("Hit: Edge "+ edge.start.x + ", "+edge.start.y + " | "+ edge.end.x + ", "+ edge.end.y + " [Start, End]: "+ (edge.start_incident? "true" : "false") + (edge.end_incident? " true" : " false") +"\n")
+            //logs?.push("Hit: Edge "+ edge.start.x + ", "+edge.start.y + " | "+ edge.end.x + ", "+ edge.end.y + " [Start, End]: "+ (edge.start_incident? "true" : "false") + (edge.end_incident? " true" : " false") +"\n")
         }
-        /*console.log("Start Point: "+ point.x + ", "+ point.y)
-        for (const index of indices){
-            let next_point = points[index]!
-            console.log("Incident point: "+next_point.x + ", "+ next_point.y)
-        }*/
         switch(indices.length){
             case 0: // edge stays an orphan
                 break
             case 1: // edge is continued
-                if (implied_vertices){
+                if (false && implied_vertices){ // Produces too many false positives
                     logs?.push("Found implied vertex: x ="+ point.x + "y ="+point.y+"\n")
                     let vertex = Path_Metadata.default(point, edge.stroke.getLineWidth())
                     let edgelist: Stroke[] = [edge]
@@ -639,24 +663,9 @@ export function edges_incident_to_edges(edges: Stroke[], graph: Map<Path_Metadat
                     const other_start = (index < n)
                     const other_edge = other_start? (edges[index]!) : (edges[index - n]!)
                     //TODO: maybe infer a vertex if StrokeStyle differs too much
-                    if (start){
-                        edge.start_incident = other_edge
-                        if (other_start)
-                            other_edge.start_incident = edge
-                        else
-                            other_edge.end_incident = edge
-                    }
-                        
-                    else{
-                        edge.end_incident = other_edge
-                        if (other_start)
-                            other_edge.start_incident = edge
-                        else
-                            other_edge.end_incident = edge
-                    }
+                    link_edges(edge, start, other_edge, other_start)
                     break
                 }
-
             default: // more than 1 indicates an implied vertex
                 if(implied_vertices){
                     logs?.push("Found implied vertex: x ="+ point.x + "y ="+point.y+"\n")
@@ -676,13 +685,56 @@ export function edges_incident_to_edges(edges: Stroke[], graph: Map<Path_Metadat
                     else
                         edge.end_incident = vertex
                 }
-                //TODO: what happens if we don't imply vertices?
-                
+                else if (MATCH_MULTIPLE_EDGES){
+                    ambiguous_edges.push({edge, start, indices})
+                }
         }
+    }
+    function handle_ambiguous_edge(edge: Stroke, start: boolean, indices: number[]){
+        logs?.push("Next ambiguous edge: " + edge)
+        // Iterate over all candidates and take the one with the highest similarity score (or none if score < 1)
+        let favorite: {edge: Stroke | null, start: boolean, score: number} = {edge: null, start: true, score: 0}
+        for (const index of indices){
+            const other_start = (index < n)
+            const other_edge = other_start? (edges[index]!) : (edges[index - n]!)
+            let score = 0
+            // Logic behind scoring: never take already paired edges. Heavily favor half orphans, but otherwise decide based on StrokeSimilarity, with a small bonus if the shape of the two edges is the same
+            score += stroke_similarity(edge.stroke, other_edge.stroke)
+            if (edge.type === other_edge.type){
+                score +=0.5
+            }
+            if(other_start){
+                if (other_edge.start_incident !== undefined)
+                    score -= 6
+                else if (other_edge.end_incident !== undefined)
+                    score += 6
+            }
+            else{
+                if (other_edge.end_incident !== undefined)
+                    score -= 6
+                else if (other_edge.start_incident !== undefined)
+                    score += 6
+            }
+            if (score > favorite.score){
+                favorite = {edge: other_edge, start: other_start, score: score}
+            }
+        }
+        if (favorite.edge !== null){
+            link_edges(edge, start, favorite.edge, favorite.start)
+        }
+    }
+    for (const ambig_edge of ambiguous_edges){
+        let edge = ambig_edge.edge
+        let start = ambig_edge.start
+        let indices = ambig_edge.indices
+        if ((start && edge.start_incident) || (!start && edge.end_incident)){
+            continue
+        } 
+        handle_ambiguous_edge(edge, start, indices)
     }
     if (logs){
         for (const edge of edges){
-            logs?.push("Edge [("+ edge.start.x + ", "+edge.start.y + "),( "+ edge.end.x + ", "+ edge.end.y + ")] AFTER [Start, End]: "+ (edge.start_incident? "true" : "false") + (edge.end_incident? " true" : " false") +"\n")
+            //logs?.push("Edge [("+ edge.start.x + ", "+edge.start.y + "),( "+ edge.end.x + ", "+ edge.end.y + ")] AFTER [Start, End]: "+ (edge.start_incident? "true" : "false") + (edge.end_incident? " true" : " false") +"\n")
         }
     }
 }

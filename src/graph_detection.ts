@@ -9,17 +9,20 @@ const VERTEX_EDGE_DISTANCE_THRESHOLD = 1.07 // best results between 106% and 109
 const DRAWING_AREA_THRESHOLD = 0.2
 // Determines by what percentage vertices of the same cluster may be apart in size
 const GROUP_VERTEX_THRESHOLD = 0.3
-const MIN_CLUSTER_SIZE = 5
+const MIN_CLUSTER_SIZE = 3
 // Determines if a vertex is considered visible (if not, it will be rejected)
 const LUMINANCE_THRESHOLD = 0.97
 const ALPHA_THRESHOLD = 0.1
 
+// Indicators to activate / deactivate filters by certain parameters
+const HEIGHT_WIDTH = true
+const LUMINANCE = true
 
 /** Uses various checks to turn all vertex candidates that fail one of them into edge candidates
  * @CHECK Vertices must be somewhat shaped like a square (height / width ratio)
  * @CHECK Vertices must be somewhat small compared to the overall drawing
  * @CHECK Vertices must be visible.*/
-function filter_vertices(vertex_candidates: Path_Metadata[], edge_candidates: Stroke[], params: {height_width: boolean, drawing_area:number, luminance: boolean}, logs?: string[]){
+function filter_vertices(vertex_candidates: Path_Metadata[], edge_candidates: Stroke[], params: {drawing_area:number}, logs?: string[]){
     const n = vertex_candidates.length
     for (var i = 0; i < n; i++){
         let vertex = vertex_candidates.shift()
@@ -28,7 +31,7 @@ function filter_vertices(vertex_candidates: Path_Metadata[], edge_candidates: St
         if (!vertex)
             throw new Error("illegal array length")
         // Filter vertices that are not "square-like" enough
-        if(params.height_width){
+        if(HEIGHT_WIDTH){
             const ratio = vertex.height_width_ratio()
             if (!(ratio > VERTEX_HEIGHT_WIDTH_RATIO_THRESHOLD && ratio < (1/VERTEX_HEIGHT_WIDTH_RATIO_THRESHOLD))){
                 logs?.push("Filtering vertex:\n"+vertex + " Height / Width Ratio: "+ratio)
@@ -42,7 +45,7 @@ function filter_vertices(vertex_candidates: Path_Metadata[], edge_candidates: St
             is_good = false
         }
         // Filter invisible vertices
-        if (params.luminance){
+        if (LUMINANCE){
             if (vertex.alpha <= ALPHA_THRESHOLD || utils.is_brighter_than(vertex, LUMINANCE_THRESHOLD)){
                 logs?.push("Filtering vertex:\n"+ vertex + "\n Alpha: " +vertex.alpha + " Color: "+ vertex.colorSpace.getType() + ", " +vertex.color)
                 is_good = false
@@ -73,7 +76,7 @@ function filter_vertices_by_area(vertex_candidates: Path_Metadata[], edge_candid
         logs?.push("Case 1: Found "+ vertex_candidates.length +" intial vertices")
         // Clustering
         for (const vertex of vertex_candidates){
-            logs?.push("Vertex Area:"+ vertex.area() + " Color:" +vertex.colorSpace.getType() + ", " + vertex.color + " Alpha: "+ vertex.alpha+ " "+ vertex)
+            logs?.push("Color:" +vertex.colorSpace.getType() + ", " + vertex.color + " Alpha: "+ vertex.alpha+ " "+ vertex)
             var cluster_found = false
             for (const cluster of clusters){
                 let avg_size: number = 0
@@ -164,7 +167,7 @@ function filter_vertices_by_area(vertex_candidates: Path_Metadata[], edge_candid
         res += v.area() +", "
     }
     logs?.push(res)
-    if (accepted_vertices.length < vertex_candidates.length) // Recursion until convergence
+    if (accepted_vertices.length < vertex_candidates.length && accepted_vertices.length >= 2* MIN_CLUSTER_SIZE) // Recursion on Case 1 until convergence
         return filter_vertices_by_area(accepted_vertices, edge_candidates, logs)
     else
         return accepted_vertices
@@ -254,7 +257,7 @@ export function detect_graphs_from_drawing(drawing : Drawing, logs? : string[]):
     var edge_candidates: Stroke[] = []
     //logs?.push("Initializing Graph Detection for new Drawing...\n")
     for (var path of drawing.paths){
-        let res = utils.break_path_into_strokes(path, logs)
+        let res = utils.break_path_into_strokes(path)
         if (res.is_vertex_candidate){
             path.shape = res.shape
             vertex_candidates.push(path)
@@ -262,7 +265,7 @@ export function detect_graphs_from_drawing(drawing : Drawing, logs? : string[]):
         else
             edge_candidates.push(... res.strokes)
     }
-    filter_vertices(vertex_candidates, edge_candidates,{height_width: true, drawing_area: drawing.area(), luminance: true})
+    filter_vertices(vertex_candidates, edge_candidates,{drawing_area: drawing.area()})
     vertex_candidates = filter_vertices_by_area(vertex_candidates, edge_candidates)
     var implied_vertices = false
     if (vertex_candidates.length == 0)
@@ -271,13 +274,10 @@ export function detect_graphs_from_drawing(drawing : Drawing, logs? : string[]):
         return []
     vertex_candidates = utils.merge_overlapping_vertices(vertex_candidates)
     let graph = utils.vertices_within_distance_of_edge(VERTEX_EDGE_DISTANCE_THRESHOLD, edge_candidates, vertex_candidates)
-    // Start of new V2 features
-    utils.edges_incident_to_edges(edge_candidates, graph, implied_vertices)
+    utils.edges_incident_to_edges(edge_candidates, graph, implied_vertices, logs)
     let {new_graph, new_edges} = utils.split_edges_with_middle_vertex(graph, edge_candidates)
     graph = new_graph
     edge_candidates = new_edges
-    //console.log("filtered number of edge candidates: "+edge_candidates.length)
-    // End V2
     const graphs = build_graphs_from_map(graph)
     if (logs)
         for (const graph of graphs){
