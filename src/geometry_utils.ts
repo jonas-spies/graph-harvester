@@ -86,7 +86,7 @@ export function merge_overlapping_vertices(vertex_candidates: Path_Metadata[], l
         const neighbors = tree.search({minX: bounds[0], minY: bounds[1], maxX: bounds[2], maxY: bounds[3]}).filter(x => {
             if (!already_used.has(x) && x !== vertex){
                 if (vertex.shape === "circle" && x.shape === "circle")
-                    return true //do_circular_vertices_overlap(vertex, x)
+                    return do_circular_vertices_overlap(vertex, x)
                 else return true
             }
             else return false
@@ -114,7 +114,7 @@ export function merge_overlapping_vertices(vertex_candidates: Path_Metadata[], l
 
 
 /**Applies a matrix transformation on the point, returning its new coordinates*/
-export function transform_point(ctm: mupdf.Matrix, x: number, y: number): {x: number, y: number}{
+export function transform_point(ctm: mupdf.Matrix, x: number, y: number): Point{
     return {
         x: ctm[0] * x + ctm[2] * y + ctm[4],
         y: ctm[1] * x + ctm[3] * y + ctm[5]
@@ -172,7 +172,7 @@ function detect_arrow_head(first_stroke: Stroke, second_stroke: Stroke, logs?: s
 
 /** Takes a path object and returns a list of all its strokes, as well as a boolean indicating if the path formed a closed loop
 @warning if there is even just a fraction of a pixel between the start and endpoint, it won't be considered a closed loop */
-export function break_path_into_strokes(path: Path_Metadata, logs?: string[]): {strokes: Stroke[], is_vertex_candidate: boolean, shape: "circle" | "rectangle" | "path"} {
+export function break_path_into_strokes(path: Path_Metadata, logs?: string[]): {strokes: Stroke[], is_arrow: boolean, is_vertex_candidate: boolean, shape: "circle" | "rectangle" | "path"} {
     const is_fill = path.type == "fill"
     var stroke_segments: Stroke[] = []
     var is_closed = false
@@ -236,11 +236,11 @@ export function break_path_into_strokes(path: Path_Metadata, logs?: string[]): {
                 break
             }
         }
-        if (!is_arrow)
+        if (!is_arrow) // Order to check is reversed for first and last element
             is_arrow = detect_arrow_head(stroke_segments[stroke_segments.length -1]!, stroke_segments[0]!, logs)
     }
 
-    return {strokes: stroke_segments, is_vertex_candidate: (!is_arrow && is_closed && (bezier_counter <= MAX_CURVES_PER_VERTEX)), shape: shape}
+    return {strokes: stroke_segments, is_arrow: is_arrow, is_vertex_candidate: (!is_arrow && is_closed && (bezier_counter <= MAX_CURVES_PER_VERTEX)), shape: shape}
 }
 
 
@@ -290,13 +290,81 @@ function euclidean_distance(p1: Point, p2: Point){
     return ((p1.x - p2.x) * (p1.x - p2.x)) + ((p1.y - p2.y) * (p1.y - p2.y))
 }
 
-// NEW VERSION
+/**
+ * 
+ * @param graph: is modified to contain newly found adjacencies
+ * @param distance_threshold: similar to vertices_within_distance_of_edge(), this acts as a search radius around each vertex
+ * @param maximum_extension: this describes the maximum number of pixels an edge is allowed to be extended by
+ */
+export function extend_orphaned_edges(graph: Map<Path_Metadata, Stroke[]>, distance_threshold: number, maximum_extension: number, step: number, edges: Stroke[], vertices: Path_Metadata[], logs?: string[]){
+    const points: Point[] = []
+    const index_to_edge: {edge: Stroke, start: boolean}[] = []
+    const linked_edges: Map<string, {edge: Stroke, start: boolean, index: number, vertex: Path_Metadata}> = new Map() // stores the index of a point that led to an endpoint getting linked and the vertex it got linked to. If two vertices could be linked, the one with the lower index is closer, so we take that one
+    // Create extended sample points for each orphan
+    for (const edge of edges){
+        if (edge.start_incident === undefined && edge.end_incident === undefined)
+            continue // full orphans are scary
+        if(edge.start_incident === undefined){
+            for (let increment = step; increment <= maximum_extension; increment += step){
+                points.push(edge.extend_from_start(increment))
+                index_to_edge.push({edge, start: true})
+            }
+        }
+        if (edge.end_incident === undefined){
+            for (let increment = step; increment <= maximum_extension; increment += step){
+                points.push(edge.extend_from_end(increment))
+                index_to_edge.push({edge, start: false})
+            }
+        }
+    }
+    // Create search tree
+    const tree = new KDBush(points.length)
+    for (const point of points){
+        tree.add(point.x, point.y)
+    }
+    tree.finish()
+    // Iterate over all vertices
+    for (const v of vertices){
+        const bb = scale_bb_by_factor(v.getBounds(), distance_threshold)
+        const foundIds = tree.range(bb[0], bb[1], bb[2], bb[3])
+        // Use IDs to find the best candidate for each endpoint
+        foundIds.forEach(x => {
+            const {edge, start} = index_to_edge[x]!
+            const key = edge.toString()+ "_"+(start? "start" : "end")
+            const best = linked_edges.get(key)
+            if (best){
+                if (x < best.index){ // lower index => smaller distance
+                    best.index = x
+                    best.vertex = v
+                }
+            }
+            else{
+                linked_edges.set(key, {edge: edge, start: start, index: x, vertex: v})
+            }
+        })
+    }
+    // Use linked_edges to actually update our data
+    for (const values of linked_edges.values()){
+        const {edge, start, vertex} = values
+        if (start)
+            edge.start_incident = vertex
+        else
+            edge.end_incident = vertex
+        const adjacencies = graph.get(vertex)
+        if (adjacencies)
+            adjacencies.push(edge)
+        else
+            graph.set(vertex, [edge])
+    }
+}
+
+
 /**Breaks up each edge into a constant number of sample points, then checks for each vertex what sample points lie within range of its bounding box.
  * @constant STROKE_APPROXIMATION_RESOLUTION specifies how many sample points will be made for each edge
- * @input distance: a factor by which a vertex's bounding box is scaled before checking if any sample points lie in that box
- * @input edges: each edge will be modified so that its .start_incident or .end_incident are linked to up to one vertex incident to its respective endpoint
- * @output A map that returns for each vertex a list of incident edges. This is the only way in which the relation between vertices lying between two endpoints of an edge is stored 
- * @warning If multiple vertices are incident to the same edge endpoint, an arbitrary one will be linked to it, but the others will still be featured in the output map*/
+ * @param distance_threshold: a factor by which a vertex's bounding box is scaled before checking if any sample points lie in that box
+ * @param edges: each edge will be modified so that its .start_incident or .end_incident are linked to up to one vertex incident to its respective endpoint
+ * @returns A map that returns for each vertex a list of incident edges. This is the only way in which the relation between vertices lying between two endpoints of an edge is stored 
+ * @warning If multiple vertices are incident to the same edge endpoint, an arbitrary one will be linked to the edge, but the others will still be featured in the output map*/
 export function vertices_within_distance_of_edge(distance_threshold: number, edges: Stroke[], vertices: Path_Metadata[], logs?: string[]): Map<Path_Metadata, Stroke[]>{
     const map = new Map<Path_Metadata, Stroke[]>()
     const point_to_edge: Stroke[] = [] // using this, index of point leads to corresponding edge
@@ -361,7 +429,7 @@ export function vertices_within_distance_of_edge(distance_threshold: number, edg
                     edge.end_incident = v
                     incident_edges.push(edge)
                     break
-                default: // TODO: only the vertices will know of the edges, not vice versa. Write a function that splits edges along unknown vertices
+                default: // TODO: only the vertices will know of the edges, not vice versa.
                     incident_edges.push(edge)
                     break
             }
@@ -563,6 +631,9 @@ export function mean(values: number[]): number {
     return sum / values.length
 }
 
+export function points_equal(p1: Point, p2: Point): boolean{
+    return (p1.x === p2.x) && (p1.y === p2.y)
+}
 
 /** Checks for each edge if it is an orphan or half orphan, then checks if any endpoints of another edge lie within range.s
  * If exactly one edge is incident, this will become its neighbor. If two or more edges are incident, this will be interpreted as an implied vertex.

@@ -5,11 +5,15 @@ import * as utils from "./geometry_utils.js"
 const VERTEX_HEIGHT_WIDTH_RATIO_THRESHOLD = 0.5
 // Only consider edges connected to a vertex, if the edge overlaps the vertices bounding box, scaled by this
 const VERTEX_EDGE_DISTANCE_THRESHOLD = 1.07 // best results between 106% and 109% 
+// Try extending orphans by this many pixels and see if there are any incident vertices now
+const EDGE_EXTENSION_THRESHOLD = 9
+// The step size by which we extend orphaned edges
+const EDGE_EXTENSION_STEP_SIZE = 3
 // Filter vertices that take up at least that percentage of the drawing's bounding box
 const DRAWING_AREA_THRESHOLD = 0.2
 // Determines by what percentage vertices of the same cluster may be apart in size
 const GROUP_VERTEX_THRESHOLD = 0.3
-const MIN_CLUSTER_SIZE = 3
+const MIN_CLUSTER_SIZE = 3 // super important parameter apparently
 // Determines if a vertex is considered visible (if not, it will be rejected)
 const LUMINANCE_THRESHOLD = 0.97
 const ALPHA_THRESHOLD = 0.1
@@ -72,7 +76,7 @@ function filter_vertices_by_area(vertex_candidates: Path_Metadata[], edge_candid
     if (vertex_candidates.length == 0)
         return []
     // CASE 1: enough vertex candidates
-    if (vertex_candidates.length >= 2*MIN_CLUSTER_SIZE){
+    if (vertex_candidates.length >= MIN_CLUSTER_SIZE){
         logs?.push("Case 1: Found "+ vertex_candidates.length +" intial vertices")
         // Clustering
         for (const vertex of vertex_candidates){
@@ -91,14 +95,17 @@ function filter_vertices_by_area(vertex_candidates: Path_Metadata[], edge_candid
             if (!cluster_found)
                 clusters.push([vertex])
         }
-        logs?.push("Found "+clusters.length +" clusters")
-        for(const cluster of clusters){
-            let res = "Next cluster: \n"
-            for (const v of cluster){
-                res += v.area()+", "
+        if (logs){
+            logs.push("Found "+clusters.length +" clusters")
+            for(const cluster of clusters){
+                let res = "Next cluster: \n"
+                for (const v of cluster){
+                    res += v.area()+", "
+                }
+                logs.push(res)
             }
-            logs?.push(res)
         }
+
         // First check: number of elements per cluster and avg size
         for (const cluster of clusters){
             if (cluster.length < MIN_CLUSTER_SIZE && cluster.length > 0){ // few elements
@@ -136,7 +143,7 @@ function filter_vertices_by_area(vertex_candidates: Path_Metadata[], edge_candid
         const points: Point[] = []
         accepted_vertices.forEach(x => points.push(x.center()))
         for (const vertex of further_examination){
-            if (utils.vertex_contains_point(vertex, points)){
+            if (utils.vertex_contains_point(vertex, points)){ //REMARK: vertex_contains_point() builds a search tree in every call. Maybe using a dynamic data structure is better
                 logs?.push("Rejected a vertex")
                 edge_candidates.push(...utils.break_path_into_strokes(vertex).strokes)
             }   
@@ -148,27 +155,17 @@ function filter_vertices_by_area(vertex_candidates: Path_Metadata[], edge_candid
     }
     // CASE 2: not a lot of vertex candidates to begin with
     else{
-        logs?.push("Case 2: not a lot of vertices")
-        // Simply reject based on size compared to average
-        let sorted = [...vertex_candidates].sort((a,b) => a.area() - b.area())
-        let median_size = sorted[ Math.floor(sorted.length / 2) ]!.area()
-        logs?.push("Median size:"+median_size)
-        for (const vertex of vertex_candidates){
-            if (Math.abs(median_size - vertex.area()) <= median_size * GROUP_VERTEX_THRESHOLD)
-                accepted_vertices.push(vertex)
-            else{
-                logs?.push("Rejected a vertex")
-                edge_candidates.push(...utils.break_path_into_strokes(vertex).strokes)
-            }    
-        }
+        accepted_vertices.push(vertex_candidates[0]!)
+        further_examination.push(...vertex_candidates) // just check that no vertices overlap
+        further_examination.shift() // get rid of the first element because we already accepted that one
     }
     let res = ""
     for (const v of accepted_vertices){
         res += v.area() +", "
     }
     logs?.push(res)
-    if (accepted_vertices.length < vertex_candidates.length && accepted_vertices.length >= 2* MIN_CLUSTER_SIZE) // Recursion on Case 1 until convergence
-        return filter_vertices_by_area(accepted_vertices, edge_candidates, logs)
+    if (accepted_vertices.length < vertex_candidates.length && accepted_vertices.length >= MIN_CLUSTER_SIZE) // Recursion on Case 1 until convergence
+        return filter_vertices_by_area(accepted_vertices, edge_candidates)
     else
         return accepted_vertices
 }
@@ -257,7 +254,7 @@ export function detect_graphs_from_drawing(drawing : Drawing, logs? : string[]):
     var edge_candidates: Stroke[] = []
     //logs?.push("Initializing Graph Detection for new Drawing...\n")
     for (var path of drawing.paths){
-        let res = utils.break_path_into_strokes(path)
+        let res = utils.break_path_into_strokes(path, logs)
         if (res.is_vertex_candidate){
             path.shape = res.shape
             vertex_candidates.push(path)
@@ -266,7 +263,7 @@ export function detect_graphs_from_drawing(drawing : Drawing, logs? : string[]):
             edge_candidates.push(... res.strokes)
     }
     filter_vertices(vertex_candidates, edge_candidates,{drawing_area: drawing.area()})
-    vertex_candidates = filter_vertices_by_area(vertex_candidates, edge_candidates)
+    vertex_candidates = filter_vertices_by_area(vertex_candidates, edge_candidates, logs)
     var implied_vertices = false
     if (vertex_candidates.length == 0)
         implied_vertices = true
@@ -274,7 +271,8 @@ export function detect_graphs_from_drawing(drawing : Drawing, logs? : string[]):
         return []
     vertex_candidates = utils.merge_overlapping_vertices(vertex_candidates)
     let graph = utils.vertices_within_distance_of_edge(VERTEX_EDGE_DISTANCE_THRESHOLD, edge_candidates, vertex_candidates)
-    utils.edges_incident_to_edges(edge_candidates, graph, implied_vertices, logs)
+    utils.edges_incident_to_edges(edge_candidates, graph, implied_vertices)
+    utils.extend_orphaned_edges(graph, VERTEX_EDGE_DISTANCE_THRESHOLD, EDGE_EXTENSION_THRESHOLD, EDGE_EXTENSION_STEP_SIZE, edge_candidates, vertex_candidates, logs)
     let {new_graph, new_edges} = utils.split_edges_with_middle_vertex(graph, edge_candidates)
     graph = new_graph
     edge_candidates = new_edges

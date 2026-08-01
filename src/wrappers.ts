@@ -368,7 +368,8 @@ export class Stroke{
 
     start_incident?: (Stroke | Path_Metadata)
     end_incident?: (Stroke | Path_Metadata)
-
+    
+    static readonly EXTENSION_MAXIMUM = 3 // 3 seems best
 
     constructor(type: "line" | "curve", stroke: mupdf.StrokeState, points: Point[]){
         this.type = type
@@ -421,7 +422,7 @@ export class Stroke{
 
     /** Splits the edge into multiple sample points in same-length increments (the last two points might be apart up to twice as far)
      @input resolution specifies the number of sample points that should be created */
-    toPolyLine(resoltuion: number): {x: number, y: number}[]{
+    toPolyLine(resoltuion: number): Point[]{
         let increment = 1 / resoltuion
         var t = increment
         let points: {x: number, y: number}[] = [this.start]
@@ -435,7 +436,7 @@ export class Stroke{
 
 
     /** Interprets the Stroke as a trajectory function f(t) where f(0) is the start point and f(1) is the end point. Given t, it returns the corresponding point on the Stroke */
-    walk_along_edge(t: number): {x: number, y: number} {
+    walk_along_edge(t: number): Point {
         if (t > 1 || t < 0) // Will probably remove this check because it seems like an easy way to ''extend'' the line in a certain direction
             throw new Error("Illegal argument for t")
         if (this.type == "line"){
@@ -461,6 +462,64 @@ export class Stroke{
                 3*u*t*t*p2.y +
                 t*t*t*p3.y
         }
+    }
+
+    /**
+     * Returns the point that would be the edges' endpoint, if it was extended by the given distance in a straight line. Uses the second control point for bezier curves
+     * @param distance: the distance in pixels. If the distance relative to the edges' length is over a certain threshold, the distance is cut to be within that threshold instead
+     */
+    extend_from_end(distance: number): Point{
+        var dx;
+        var dy;
+        var len;
+        if (this.type === "line"){
+            dx = this.end.x - this.start.x
+            dy = this.end.y - this.start.y
+            len = Math.hypot(dx, dy)
+            distance = Math.min(distance, len / Stroke.EXTENSION_MAXIMUM)
+        }
+        else{
+            let start = this.control_pts![1]!
+            if (utils.points_equal(start, this.end))
+                start = this.control_pts![0]!
+            if (utils.points_equal(start, this.end))
+                start = this.start
+
+            dx = this.end.x - start.x;
+            dy = this.end.y - start.y;
+            len = Math.hypot(dx, dy)
+            distance = Math.min(distance, len / (Stroke.EXTENSION_MAXIMUM / 2)) //more lenient with bezier curves because the distance to control point is shorter
+        }
+
+        if (len === 0) // Edge is a single point
+            return this.end
+        return {x: this.end.x + distance * dx / len, y: this.end.y + distance * dy / len}
+    }
+
+    /** Behaves exactly like extend_from_end() for the first endpoint */
+    extend_from_start(distance: number): Point{
+        var dx;
+        var dy;
+        var len;
+        if (this.type === "line"){
+            dx = this.start.x - this.end.x
+            dy = this.start.y - this.end.y
+        }
+        else{
+            let end = this.control_pts![0]!
+            if (utils.points_equal(end, this.start))
+                end = this.control_pts![1]!
+            if (utils.points_equal(end, this.start))
+                end = this.end
+
+            dx = this.start.x - end.x;
+            dy = this.start.y - end.y;
+        }
+        len = Math.hypot(dx, dy)
+        if (len === 0) // Edge is a single point
+            return this.start
+        distance = Math.min(distance, len / Stroke.EXTENSION_MAXIMUM)
+        return {x: this.start.x + distance * dx / len, y: this.start.y + distance * dy / len}
     }
 
     static sub_curve_from_bezier(curve: Stroke, split_t: number): {left: Stroke, right: Stroke}{
