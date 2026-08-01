@@ -216,6 +216,8 @@ export function break_path_into_strokes(path: Path_Metadata, logs?: string[]): {
             is_closed = true
             if (!loop_start || !last)
                 throw new Error ("closePath without moveTo")
+            if (loop_start.x == last.x && loop_start.y == last.y)
+                return
             stroke_segments.push(new Stroke("line", strokeStyle!, [last, loop_start]))
             logs?.push("closing Path\n")
         }
@@ -231,7 +233,7 @@ export function break_path_into_strokes(path: Path_Metadata, logs?: string[]): {
         for (var i = 0; i < stroke_segments.length -1; i++){
             let s1 = stroke_segments[i]!
             let s2 = stroke_segments[i+1]!
-            if (detect_arrow_head(s1, s2)){
+            if (detect_arrow_head(s1, s2, logs)){
                 is_arrow = true
                 break
             }

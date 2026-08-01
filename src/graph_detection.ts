@@ -249,12 +249,13 @@ function build_graphs_from_map(map: Map<Path_Metadata, Stroke[]>, logs?: string[
 
 /**The access point to graph detection. Takes a drawing and tries to extract a list of graphs from it. */
 export function detect_graphs_from_drawing(drawing : Drawing, logs? : string[]): Graph[]{
+    logs?.push("Called Detect Graphs from Drawing...")
     // Finding Candidates
     let vertex_candidates: Path_Metadata[] = [] 
     var edge_candidates: Stroke[] = []
     //logs?.push("Initializing Graph Detection for new Drawing...\n")
     for (var path of drawing.paths){
-        let res = utils.break_path_into_strokes(path, logs)
+        let res = utils.break_path_into_strokes(path)
         if (res.is_vertex_candidate){
             path.shape = res.shape
             vertex_candidates.push(path)
@@ -263,7 +264,7 @@ export function detect_graphs_from_drawing(drawing : Drawing, logs? : string[]):
             edge_candidates.push(... res.strokes)
     }
     filter_vertices(vertex_candidates, edge_candidates,{drawing_area: drawing.area()})
-    vertex_candidates = filter_vertices_by_area(vertex_candidates, edge_candidates, logs)
+    vertex_candidates = filter_vertices_by_area(vertex_candidates, edge_candidates)
     var implied_vertices = false
     if (vertex_candidates.length == 0)
         implied_vertices = true
@@ -272,7 +273,7 @@ export function detect_graphs_from_drawing(drawing : Drawing, logs? : string[]):
     vertex_candidates = utils.merge_overlapping_vertices(vertex_candidates)
     let graph = utils.vertices_within_distance_of_edge(VERTEX_EDGE_DISTANCE_THRESHOLD, edge_candidates, vertex_candidates)
     utils.edges_incident_to_edges(edge_candidates, graph, implied_vertices)
-    utils.extend_orphaned_edges(graph, VERTEX_EDGE_DISTANCE_THRESHOLD, EDGE_EXTENSION_THRESHOLD, EDGE_EXTENSION_STEP_SIZE, edge_candidates, vertex_candidates, logs)
+    utils.extend_orphaned_edges(graph, VERTEX_EDGE_DISTANCE_THRESHOLD, EDGE_EXTENSION_THRESHOLD, EDGE_EXTENSION_STEP_SIZE, edge_candidates, vertex_candidates)
     let {new_graph, new_edges} = utils.split_edges_with_middle_vertex(graph, edge_candidates)
     graph = new_graph
     edge_candidates = new_edges
@@ -280,11 +281,11 @@ export function detect_graphs_from_drawing(drawing : Drawing, logs? : string[]):
     if (logs)
         for (const graph of graphs){
             logs.push(graph.toString())
-            logs.push("G6: "+graph.toGraph6())
+            /*logs.push("G6: "+graph.toGraph6())
             let adj = graph.toAdjacencyMatrix()
             logs.push("Adjacency:")
             for (const row of adj)
-                logs.push(row.toString())
+                logs.push(row.toString())*/
         }
     return graphs
 }
