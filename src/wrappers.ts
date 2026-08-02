@@ -5,7 +5,7 @@ import * as utils from './geometry_utils.js'
 export const default_stroke = new mupdf.StrokeState({
                     lineCap: "Butt",
                     lineJoin: "Bevel",
-                    lineWidth: 0.1,
+                    lineWidth: 0,
                     miterLimit: 1.414,
                     dashPhase: 0
                     })
@@ -520,6 +520,12 @@ export class Stroke{
             return this.start
         distance = Math.min(distance, len / Stroke.EXTENSION_MAXIMUM)
         return {x: this.start.x + distance * dx / len, y: this.start.y + distance * dy / len}
+    }
+
+    length_squared(): number{
+        const dx = this.end.x - this.start.x
+        const dy = this.end.y - this.start.y
+        return (dx * dx) + (dy * dy)
     }
 
     static sub_curve_from_bezier(curve: Stroke, split_t: number): {left: Stroke, right: Stroke}{

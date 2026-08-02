@@ -1,8 +1,8 @@
 import {Drawing, Path_Metadata, Stroke, Graph, type Point} from "./wrappers.js"
 import * as utils from "./geometry_utils.js"
 
-// Only keep vertices with a ratio between that and its inverse
-const VERTEX_HEIGHT_WIDTH_RATIO_THRESHOLD = 0.5
+// Only keep vertices with a ratio between that and its inverse 
+const VERTEX_HEIGHT_WIDTH_RATIO_THRESHOLD = 0.75
 // Only consider edges connected to a vertex, if the edge overlaps the vertices bounding box, scaled by this
 const VERTEX_EDGE_DISTANCE_THRESHOLD = 1.07 // best results between 106% and 109% 
 // Try extending orphans by this many pixels and see if there are any incident vertices now
@@ -15,12 +15,11 @@ const DRAWING_AREA_THRESHOLD = 0.2
 const GROUP_VERTEX_THRESHOLD = 0.3
 const MIN_CLUSTER_SIZE = 3 // super important parameter apparently
 // Determines if a vertex is considered visible (if not, it will be rejected)
-const LUMINANCE_THRESHOLD = 0.97
+const LUMINANCE_THRESHOLD = 0.95 // 0.87 seems to be a threshold for 20_56 and 15_243 especially
 const ALPHA_THRESHOLD = 0.1
 
 // Indicators to activate / deactivate filters by certain parameters
-const HEIGHT_WIDTH = true
-const LUMINANCE = true
+const HEIGHT_WIDTH = true //(TODO: only activate this filter if some vertices remain after)
 
 /** Uses various checks to turn all vertex candidates that fail one of them into edge candidates
  * @CHECK Vertices must be somewhat shaped like a square (height / width ratio)
@@ -49,12 +48,10 @@ function filter_vertices(vertex_candidates: Path_Metadata[], edge_candidates: St
             is_good = false
         }
         // Filter invisible vertices
-        if (LUMINANCE){
             if (vertex.alpha <= ALPHA_THRESHOLD || utils.is_brighter_than(vertex, LUMINANCE_THRESHOLD)){
                 logs?.push("Filtering vertex:\n"+ vertex + "\n Alpha: " +vertex.alpha + " Color: "+ vertex.colorSpace.getType() + ", " +vertex.color)
                 is_good = false
-                full_reject = true
-            }
+                full_reject = true //TODO does not fully exclude such edges, since some objects never become a vertex candidate, so this should be part of the break_paths_into_stroke()
         }
 
 
@@ -62,7 +59,7 @@ function filter_vertices(vertex_candidates: Path_Metadata[], edge_candidates: St
         if (is_good)
             vertex_candidates.push(vertex)            
         else if(!full_reject)
-            edge_candidates.push(... utils.break_path_into_strokes(vertex).strokes)   
+            edge_candidates.push(... utils.break_path_into_strokes(vertex, LUMINANCE_THRESHOLD).strokes)   
     }
 }
 
@@ -145,7 +142,7 @@ function filter_vertices_by_area(vertex_candidates: Path_Metadata[], edge_candid
         for (const vertex of further_examination){
             if (utils.vertex_contains_point(vertex, points)){ //REMARK: vertex_contains_point() builds a search tree in every call. Maybe using a dynamic data structure is better
                 logs?.push("Rejected a vertex")
-                edge_candidates.push(...utils.break_path_into_strokes(vertex).strokes)
+                edge_candidates.push(...utils.break_path_into_strokes(vertex, LUMINANCE_THRESHOLD).strokes)
             }   
             else{
                 accepted_vertices.push(vertex)
@@ -163,9 +160,9 @@ function filter_vertices_by_area(vertex_candidates: Path_Metadata[], edge_candid
     for (const v of accepted_vertices){
         res += v.area() +", "
     }
-    logs?.push(res)
-    if (accepted_vertices.length < vertex_candidates.length && accepted_vertices.length >= MIN_CLUSTER_SIZE) // Recursion on Case 1 until convergence
-        return filter_vertices_by_area(accepted_vertices, edge_candidates)
+    logs?.push("Found "+accepted_vertices.length + " vertices:\n" +res)
+    if ( (accepted_vertices.length < vertex_candidates.length) && (accepted_vertices.length >= MIN_CLUSTER_SIZE) ) // Recursion on Case 1 until convergence
+        return filter_vertices_by_area(accepted_vertices, edge_candidates, logs)
     else
         return accepted_vertices
 }
@@ -255,12 +252,12 @@ export function detect_graphs_from_drawing(drawing : Drawing, logs? : string[]):
     var edge_candidates: Stroke[] = []
     //logs?.push("Initializing Graph Detection for new Drawing...\n")
     for (var path of drawing.paths){
-        let res = utils.break_path_into_strokes(path)
+        let res = utils.break_path_into_strokes(path, LUMINANCE_THRESHOLD)
         if (res.is_vertex_candidate){
             path.shape = res.shape
             vertex_candidates.push(path)
         }
-        else
+        else if(!res.full_reject)
             edge_candidates.push(... res.strokes)
     }
     filter_vertices(vertex_candidates, edge_candidates,{drawing_area: drawing.area()})

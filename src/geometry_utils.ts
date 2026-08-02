@@ -7,6 +7,9 @@ import * as mupdf from "mupdf"
 const STROKE_APPROXIMATION_RESOLUTION = 30
 // Determines how strongly the bounding box should be scaled when checking for overlapping vertices. 0.05 narrows it down to close to the center, which seems to have the best result
 const MERGE_OVERLAP_FACTOR = 0.05
+// Used to connect edge endpoints to each other
+const MINIMUM_SEARCH_RADIUS = 0.25 // 0.25 seems best
+const MINIMUM_EDGE_LENGTH = 10 // does not forbid shorter edges, only denies short edges a bigger search radius to reduce false positives
 // Rejects any object as vertex candidate, if it contains too many bezier curves. Optimal Range in [8-17]
 const MAX_CURVES_PER_VERTEX = 8
 const MATCH_MULTIPLE_EDGES = true
@@ -172,10 +175,11 @@ function detect_arrow_head(first_stroke: Stroke, second_stroke: Stroke, logs?: s
 
 /** Takes a path object and returns a list of all its strokes, as well as a boolean indicating if the path formed a closed loop
 @warning if there is even just a fraction of a pixel between the start and endpoint, it won't be considered a closed loop */
-export function break_path_into_strokes(path: Path_Metadata, logs?: string[]): {strokes: Stroke[], is_arrow: boolean, is_vertex_candidate: boolean, shape: "circle" | "rectangle" | "path"} {
+export function break_path_into_strokes(path: Path_Metadata, luminance_threshold: number, logs?: string[]): {strokes: Stroke[], full_reject: boolean, is_vertex_candidate: boolean, shape: "circle" | "rectangle" | "path"} {
     const is_fill = path.type == "fill"
     var stroke_segments: Stroke[] = []
     var is_closed = false
+    var full_reject = is_brighter_than(path, luminance_threshold)
     var bezier_counter = 0
     var shape: "circle" | "rectangle" | "path" = "rectangle"
     var last: {x: number, y: number} | undefined
@@ -183,7 +187,7 @@ export function break_path_into_strokes(path: Path_Metadata, logs?: string[]): {
     var strokeStyle = is_fill?  default_stroke : path.stroke
     var ctm = path.ctm
     logs?.push("Breaking new path object: "+ path)
-        
+    
     var path_walker = {
         moveTo: function (x: number, y: number) {
             var point = transform_point(ctm, x,y)
@@ -242,7 +246,7 @@ export function break_path_into_strokes(path: Path_Metadata, logs?: string[]): {
             is_arrow = detect_arrow_head(stroke_segments[stroke_segments.length -1]!, stroke_segments[0]!, logs)
     }
 
-    return {strokes: stroke_segments, is_arrow: is_arrow, is_vertex_candidate: (!is_arrow && is_closed && (bezier_counter <= MAX_CURVES_PER_VERTEX)), shape: shape}
+    return {strokes: stroke_segments, full_reject: full_reject, is_vertex_candidate: (!is_arrow && is_closed && (bezier_counter <= MAX_CURVES_PER_VERTEX)), shape: shape}
 }
 
 
@@ -662,9 +666,9 @@ export function edges_incident_to_edges(edges: Stroke[], graph: Map<Path_Metadat
     const tree = new KDBush(2*n)
     const ambiguous_edges = []
     if(logs){
-        //logs?.push("Rescuing orphans...\n")
+        logs?.push("Rescuing orphans...\n")
         for (const edge of edges){
-            //logs?.push("Edge [("+ edge.start.x + ", "+edge.start.y + "),( "+ edge.end.x + ", "+ edge.end.y + ")] BEFORE [Start, End]: "+ (edge.start_incident? "true" : "false") + (edge.end_incident? " true" : " false") +"\n")
+            logs?.push("Edge [("+ edge.start.x + ", "+edge.start.y + "),( "+ edge.end.x + ", "+ edge.end.y + ")] BEFORE [Start, End]: "+ (edge.start_incident? "true" : "false") + (edge.end_incident? " true" : " false") +" Linewidth: "+ edge.stroke.getLineWidth()+"\n")
         }
     }
     for (const {x,y} of points)
@@ -685,9 +689,13 @@ export function edges_incident_to_edges(edges: Stroke[], graph: Map<Path_Metadat
         if ( (start && edge.start_incident) || (!start && edge.end_incident))
             continue
         else
-            //logs?.push("Trying to rescue an orphan at point "+ point.x + ", "+point.y +" for Edge "+ edge.start.x + ", "+edge.start.y + " | "+ edge.end.x + ", "+ edge.end.y + " [Start, End]: "+ (edge.start_incident? "true" : "false") + (edge.end_incident? " true" : " false") +"\n")          
-        var indices = tree.within(point.x, point.y, edge.stroke.getLineWidth())
-        //logs?.push("Found "+indices.length + " initial hits \n")
+            logs?.push("Trying to rescue an orphan at point "+ point.x + ", "+point.y +" for Edge "+ edge.start.x + ", "+edge.start.y + " | "+ edge.end.x + ", "+ edge.end.y + " [Start, End]: "+ (edge.start_incident? "true" : "false") + (edge.end_incident? " true" : " false") +"\n")          
+        var search_radius = edge.stroke.getLineWidth()
+        if(edge.length_squared() >= MINIMUM_EDGE_LENGTH * MINIMUM_EDGE_LENGTH)
+             search_radius = Math.max(edge.stroke.getLineWidth(), MINIMUM_SEARCH_RADIUS)
+            
+        var indices = tree.within(point.x, point.y, search_radius)
+        logs?.push("Found "+indices.length + " initial hits \n")
 
         indices = indices.filter( (value, key) => { // FILTER: 1) endpoints that are not orphaned. 2) endpoints that are incident to their other end.
             if (value == i || value == i + n || value == i - n) // Self hit
@@ -702,10 +710,10 @@ export function edges_incident_to_edges(edges: Stroke[], graph: Map<Path_Metadat
             }
             return true
         })
-        //logs?.push("After filtering, "+indices.length + " hits remain\n")
+        logs?.push("After filtering, "+indices.length + " hits remain\n")
         for (const index of indices){
             let edge = edges[index < n? index : index -n]!
-            //logs?.push("Hit: Edge "+ edge.start.x + ", "+edge.start.y + " | "+ edge.end.x + ", "+ edge.end.y + " [Start, End]: "+ (edge.start_incident? "true" : "false") + (edge.end_incident? " true" : " false") +"\n")
+            logs?.push("Hit: Edge "+ edge.start.x + ", "+edge.start.y + " | "+ edge.end.x + ", "+ edge.end.y + " [Start, End]: "+ (edge.start_incident? "true" : "false") + (edge.end_incident? " true" : " false") +"\n")
         }
         switch(indices.length){
             case 0: // edge stays an orphan

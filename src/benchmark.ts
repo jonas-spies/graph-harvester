@@ -108,7 +108,7 @@ export function benchmark(){
     }
     logs.push("Identified "+success + " out of "+ total_ref + " true positives and found a total of "+total+" graphs.")
     logs.push("Recall: "+ (success / total_ref) + " Precision: "+ (success / total))
-    logs.push("False Negatives: "+ (total_ref - success) + " False Positives: "+ (total - success))
+    logs.push("False Negatives: "+ (total_ref - success) + " False Positives: "+ (total - total_ref))
     fs.writeFileSync(result_directory+"benchmark.txt", logs.join("\n"))
 }
 
