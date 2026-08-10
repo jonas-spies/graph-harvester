@@ -136,7 +136,7 @@ function detect_arrow_head(first_stroke: Stroke, second_stroke: Stroke, logs?: s
     const lenV = Math.hypot(second_stroke.end.x - second_stroke.start.x, second_stroke.end.y - second_stroke.start.y)
     if (lenU === 0 || lenV === 0)
         return false
-    if (lenU > 2* lenV || lenV > 2* lenU) //we assume an arrow to be symmetrical
+    if (lenU > 2* lenV || lenV > 2* lenU) //we assume an arrow to be somewhat symmetrical
         return false
     const cosine = Math.max(-1, Math.min(1, dot / (lenU * lenV))) // prevent floating errors outside of [-1,1]
     //const angle = Math.acos(cosine) * 180 / Math.PI // actually not needed for this check

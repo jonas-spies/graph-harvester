@@ -1,0 +1,271 @@
+\documentclass[practical,english]{info1thesis}
+% possible types: seminar, practical (bachelor, master, zula)
+% Für Bachelor-, Master-, und Zulassungsarbeiten die Vorlage my-bachelor-master-zula.tex verwenden!
+% possible languages: english, german
+
+\usepackage[utf8]{inputenc}
+\usepackage[T1]{fontenc}
+\usepackage{lmodern}
+\usepackage{placeins}
+
+\graphicspath{{figures/}}
+
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%%%%%%%%%%%%% Bitte nur ab hier Änderungen vornehmen %%%%%%%%%%%%%%%%%%%%%
+
+\title{Creating a Graph Harvester} % Geben Sie hier den Titel Ihrer Arbeit an.
+
+\author{Jonas Spies} % Geben Sie Ihren Namen an.
+\semester{Summer semester 2026}
+\submissiondate{}
+\supervisors{% Geben Sie die Namen aller Betreuer ab, getrennt durch das Makro '\and'
+Prof.\ Dr.\ Alexander Wolff \and
+Tim Hegemann, M.\,Sc.
+} 
+
+
+\begin{document}
+\section{Abstract}
+In an attempt to answer the question of what makes a graph interesting, House of Graphs have built a database of many interesting graphs.
+However manual insertion of new graphs being tedious creates the need for an application that automates this process.
+While such a system already existed, it suffered from only being able to reconstruct roughly 35\%\footnote{Only counting SVG drawings. Manual evaluation found 419 true positives, 248 of which were graded 'A', and 287 false negatives.} of graphs exactly and the necessity of hosting a server due to the project being written in Python.
+Thus, I have rebuilt a similar application in Typescript to allow client-side execution while deviating from the original workflow in some aspects in the hope of improving the detection rate.
+Using graph drawings from papers featured in the International Symposium on Graph Drawing and Network Visualization from 1998 to 2024, I estimated the new implementation's performance against that of the old one, and came the two systems' detection rates are similar.
+The main reason why further improvement may be difficult is the trade-off that arises with the adjustment of some parameters: if they are changed to properly detect one instance, another instance may not be able to be detected correctly.
+
+
+\section{Introduction}
+Graph theory is a major field in mathematics and computer science due to a graph's ability to represent objects and their relations to each other in a compact and intuitive manner.
+This representation allows all kinds of problems to be solved in a unified approach, such as the problem of finding the shortest path from one location to another, as often applied in navigational devices.
+
+
+Many of these graphs may have certain properties that make them inherently more interesting than others. 
+For example, they may serve as a particularly illustrative example to show an algorithm's best or worst case performance, as a counterexample to a plausible conjecture, or as an extreme instance where some property, for example planarity, still holds.
+While it remains difficult to define what makes a graph ''interesting'', we use the appearance of a graph in a scientific paper as a major indicator for potential interest, leading our focus on to graphs featured in them.
+
+
+In an attempt to give the word ''interesting'' a more concrete meaning, House of Graphs (HoG) have made it their mission to create a database that contains many such graphs.
+However, scanning through hundreds of papers manually is not only prone to errors especially for large graphs, but also very time consuming, which is why we aimed to write a program that can automate this process.
+
+
+Thus, a graph harvester app has been developed in Python to automatically scan scientific papers and heuristically extract any graph contained in them in an SVG format, returning a visualization, a Graph6 String, and a link to the respective database entry or to the upload form for that graph.
+A user can then use this tool to upload new graphs with the click of a button.
+
+
+I have rebuilt the project in Typescript to allow client-side execution of the code, thus eliminating the need of hosting a server, while achieving similar performance compared to that of the previous system.
+While following the general work pipeline of the previous implementation, I allowed myself to experiment with the concrete algorithms used in the background to try and make the application as efficient as possible while also adding and omitting a selected number of processing steps.
+For example, I widened the definition of a vertex from ''a rectangle or a circle'' to ''any object of limited complexity that forms a closed loop''. 
+This change, however also required a more intricate detection of arrow heads.
+
+
+Using papers featured in the International Symposium on Graph Drawing and Network Visualization from 1998 to 2024 to measure progress during development, I have also made some observations about the general structure of these papers and their respective graph drawings, as well as on what makes a graph drawing ''difficult'' to scan heuristically.
+Furthermore, I will highlight several trade-offs one has to consider when adjusting the system's parameters.
+
+
+These observations could serve as a starting point for anybody aiming to improve the project, or as a guideline on how to make machine-readable graph drawings for researchers who wish to find their graphs included in the HoG database.
+
+\section{System Limitations}
+In order to scan graphs, we limit ourselves to vector graphics because those consist of multiple drawn objects that can be examined heuristically to discern between vertices and edges.
+While the ability to scan bitmaps as well would be promising, this would require additional effort such as working with convolutional neural networks to extract patterns.
+With only roughly 17\% of all graph drawings being drawn as a bitmap, we deemed the extra effort not worth it, although future work may easily improve the performance by supporting bitmaps as well.
+
+
+Besides that, we limit ourselves to undirected, simple graphs, so that any two vertices $u,v$ with an edge from $u$ to $v$ also contains an edge from $v$ to $u$. 
+This information is stored in a single edge $(u,v)$ (or arbitrarily $(v,u)$), and each pair of vertices can only have up to one edge in the graph.
+While there may also be many interesting directed graphs or multigraphs, House of Graphs does not support them, thus we do not discern between them.
+
+
+\section{The old implementation}
+\subsection{Workflow}
+The old implementation handles one document at a time, going through that document page by page.
+\paragraph{Identifying figures}
+As a first step, the old pipeline groups drawn objects by figure, so that it only needs to consider a limited number of them for each potential graph.
+This is achieved by a simple algorithm where each drawn object on a page starts off as its own figure. 
+If two figures have overlapping bounding boxes, they are merged to a single figure containing the drawn objects of both. 
+By repetition until convergence, this simple approach works surprisingly well to correctly identify each figure as such, which alleviates manual reassurance because another simple search often manages to reassign the figure number to the respective figure, as well.
+
+\paragraph{Initial vertex and edge candidates}
+Iterating figure by figure, the system tries to construct circles from bezier curves, so that initially, all rectangles and circles are a vertex candidate and remaining objects are edge candidates.
+An initial filter clusters the vertices by size, then ensures for larger than average vertices that they do not contain any already accepted vertices and that they have some edge candidate starting inside.
+Any vertices that do not pass this filter will be further considered as a group of edges. 
+After that, duplicate vertices are thrown away completely, which is important because any drawn objects with both a fill color and an outline will appear twice.
+
+\paragraph{Graph detection}
+From there, it discerns between edges as straight line segments and edges as bezier curves, and looks for any edge candidates starting or ending in a vertex candidate.
+If both the start and endpoint of a segment are incident to a vertex, that segment is an \emph{edge}.
+If only one endpoint is incident to a vertex, it is called a \emph{half-orphan}.
+Remaining segments are \emph{orphans}.
+Orphans and half-orphans are then extended in a direction to see if a vertex can be found that way.
+Once orphans and half-orphans are eliminated this way, the system checks if any vertices lie between two endpoints and splits each such segment accordingly. 
+
+
+Lastly, it performs a depth-first-search to find all connected components, and returns each component as one graph, which is part of an object that corresponds to the figure.
+
+\subsection{Limitations}
+The old pipeline performed noticably worse on instances that have unconventional shapes as vertices, very large vertices, or very bright objects. 
+Instances with an underlying grid also proved troublesome, since it is difficult to discern a grid from actual edges, as other instances do feature grid drawings.
+\section{Personal Contributions}
+
+\subsection{Goals}
+The goal is a graph harvester that runs client-side in a browser, so that the user can upload PDF files and expect to reliably be shown a figure in the paper, as well as the corresponding graph.
+The user can then decide if he wants to edit the graph using HoG's built-in editor, or if they want to upload the graph to the database.
+Because the user is ultimately in control, it is best to have as few false negatives as possible, even if that means having more false positives.
+
+\subsection{Benchmarks}
+Besides the web application, I have built a second entryway to the pipeline which runs through two hardcoded directories, one containing a set of reference graphs, and one containing a set of scientific papers in PDF format.
+The system will then iterate the pipeline over all papers and in each step try to match as many of its graphs to an equivalent reference graph belonging to that paper. 
+While the equivalence check is deliberately simple, only comparing the number of edges and vertices, I have found it sufficient for the purposes of this benchmark due to the inherently small number of graphs featured in a single file.
+This allowed me to focus on actually improving the system rather than implementing a complicated exponential runtime algorithm for graph isomorphism.
+The reference graphs come from the old pipeline, but were manually checked to only contain graphs graded as 'A', a rating given when the extracted graph is isomorphically identical to the depicted graph, i.e.~an instance where the previous system succeeded without any errors.
+This means that any time 'recall' is mentioned, it is by no means a measure against ground truth, but more of a measure of agreement with the old implementation, given instances the old implementation performed well at.
+While I did put in some effort to get closer to ground truth by manually constructing further reference graphs that the previous implementation failed to detect correctly, I quickly decided that this would not be worth the effort, as even a single small instance could easily take me 15 minutes, with some graphs containing hundreds of vertices being practically impossible to accurately reconstruct by hand.
+The reason why even simple graphs took that much effort is because I would modify existing graphs the previous system produced.
+That means first looking up the graph's grade to ensure it is not part of the data set yet, then understanding what the graph is supposed to look like, and finally finding out which vertex corresponds $v1$, $v2$, etc.
+As a result, I decided to throw away the few extra instances I created and instead focused only on the graphs originally graded as 'A'.
+With only 248 out of the total 706 graphs in the data set being graded 'A', there is a lot of potential improvement my benchmark is unable to show, which means that generally, my benchmark underestimates the performance of the new implementation.
+With that being said, the most recent benchmark over all papers that included at least one graph graded 'A' was able to match 222 out of 248 graphs for a recall of 89.5\% and found a total of 578 graphs for a precision of 38\%.
+Note that even though precision is fairly low, the benchmark fails to include instances the old system did not succeed at, which means that the actual precision against ground truth is likely higher than what this benchmark can indicate.
+I have additionally manually found some instances where my implementation performs better than the old one, for example for GD10\_383-388 Fig.~4 or GD14\_264-276 Fig.~3, which leads to my conclusion, that the two systems are overall similar in performance.
+
+%Problems rose because even the true positives of highest quality had instances where one graph included the edges and vertices of multiple subfigures, leading to one large disconnected graph.
+
+
+
+\subsection{The general workflow and impact of different implementations}
+Similar to the old graph harvester, I use MuPDF to extract vector graphics page by page, then group them together into figures by overlapping bounding boxes. 
+From there, I use various heuristics to interpret these vector drawings as a graph drawing.
+
+\subsubsection{Initial vertex and edge selection}
+The first difference to the old system arises at the initial selection of vertex and edge candidates:
+I iterate over every drawn object and simply check if it forms a closed loop. 
+With a lot of papers drawing letters as a vector graphic, this produced many instances where letters would be interpreted as vertices, which is why I eventually also added a complexity filter, limiting how many bezier curves are allowed in a vertex.
+Additionally, many drawings feature directed edges or arrows to highlight certain vertices.
+The arrow heads would then be falsely interpreted as a vertex, so that I built a simple arrow head detection that would mark any object with a sharp angle of 45° or less as an arrow and thus reject it as a vertex.
+Any object not selected as a vertex would then be broken down into its separate strokes, interpreting each of these strokes as an edge candidate. 
+Rejected arrows are currently reused as edge candidates because the current detection is too broad, so that throwing them away would cause problems for many graph drawings.
+A potential solution for this is briefly discussed in \cref{sec:arrows}.
+
+\subsubsection{Additional filters}
+While the selection of vertex candidates was deliberately lax initially, it became clear that further filtering the selection of vertex candidates was key to improving recall:
+an earlier version without any of the following filters only found 30 'A' graded graphs, as opposed to the current version which found 222.
+
+
+\paragraph{Merging overlapping vertices}
+Due to the nature of how vector graphics are drawn, most vertices actually produce two objects: one for the outline and one for the interior color.
+If both survive the initial selection process, it becomes essentially random which of the two objects is selected as incident to an edge due to an edge only being able to store one vertex per endpoint.
+This would cause problems during the last step discussed in \cref{sec:graph}, so that many vertices would be split into two and some components of a graph may end up missing entirely.
+As a result, an initial filter which merges any two vertices into a large single one, if they overlap by a certain threshold, became the single most important feature to be implemented, boosting the detection rate from an initial 30 instances, all the way up to 173 instances found.
+However, the following filter would largely take over this role, so that actually merging vertices started becoming more of a backup system in my implementation.
+Still, instances like GD13\_299-310 Fig.~8, where there are two offset circles belonging to the same vertex, prove that a feature like this remains necessary.
+
+\paragraph{Clustering vertices by area}
+Largely copied from the old graph harvester, this filter first clusters vertices by area, then splits each cluster into two groups: the accepted group, and the group up for further examination.
+If a cluster contains too few elements, or if its mean area is larger than the average over the remaining clusters, it would be sent to further examination, while other clusters would be accepted.
+A cluster up for further examination then needs to ensure that it does not contain any center point from the set of already accepted vertices.
+This check largely ensures that if there is one object for the outline and one for the interior of a vertex, just one, usually the interior due to its smaller area, is chosen.
+However, the parameter of a minimum cluster size interestingly enough turned out to be a hugely influential parameter:
+While I eventually got it down to a value of $3$, pushing it down further comes at a huge cost of detection rate, likely due to less true vertices being accepted without any further examination.
+This creates the opportunity for huge objects to get accepted as a vertex, if they are examined before any actual vertices it overlaps have been accepted.
+That way, the huge vertex would remain accepted, and later merge with all actual vertices into one big vertex, swallowing parts of the actual graph drawing.
+While I believe that there could be better approaches to balance an initial selection of vertices, this one proved good enough, so that I found it hard to manually find an instance where this approach causes problems.
+
+
+\paragraph{Height-to-Width Ratio}
+Another filter that seemed promising was that of a filter based on the height to width ratio of a vertex.
+I eventually optimized the parameter so that any vertex that less than 75\% of its width in height, or of its height in width, would be rejected.
+While this initially gave a small boost in recall, recent tests have shown no difference.
+However, there was one instance, GD98\_369-376 Fig.~6, which could only be matched without this filter, and one instance, the figure on page 70 on GD17\_84-97, which could only be matched with this filter active.
+A further optimization could be to only use the filter, if some vertices still remain after, but in its current form, the impact of the filter seems to be weak.
+
+\paragraph{Size of vertex compared to total size of figure}
+While simply filtering vertices if their area is too large relative to that of the figure seems like a good idea, in practice other filters already seem to do this job.
+As a result, no difference in recall could be observed when changing the threshold for this variable. 
+For example, filtering any vertex that takes up 20\% or more of the total area, compared to already filtering if a vertex takes up 5\% of the total area, does not change recall at all, and setting the threshold too low naturally hurts recall, rather than helping it.
+However, one interesting observation is that contrary to intuition, the total number of detected graphs is higher with a stricter threshold: having detected a total of 611 graphs with a threshold of 5\% as opposed to just 578 graphs detected with 20\%.
+This could indicate that there are some niche instances the old pipeline could not properly detect, that do rely on this filter, which motivated me to keep the threshold relatively low at 5\%.
+
+
+\paragraph{Brightness}
+Filtering objects, not just vertices, by brightness is actually a powerful tool to get rid of many objects that make an instance difficult to detect, such as grids and background colors.
+For instance, GD15\_243-256 Fig.~1 has a light gray grid laying under one of its graph drawings.
+Creating a brightness scale from 0 (black) to 1 (white) and completely throwing away any object over a certain threshold can make many instances easer.
+For example, a threshold of $0.87$ would cause the aforementioned graph to lose its underlying grid.
+However, overall $0.87$ seems like it is already too strict, as many instances such as GD20\_56-70 Fig.~5 break at this point as well.
+In total, a threshold of $1$ compared to one of $0.87$ detects 222 as opposed to just 215 graphs from the data set, which unfortunately indicates that, while there is a trade-off of sacrificing some graphs to be able to detect others, it is generally not worth taking currently since it means losing graphs in total.
+
+\paragraph{Arrows}
+While the old implementation with its strict definition of a vertex had no problem with arrow heads, my new implementation does suffer from detecting any arrow head as a vertex, leading to many falsely detected instances.
+To fix that, I implemented a simple arrow head detection, that would reject any object as vertex candidate, if it contains a sharp angle, namely 45° or less.
+As a small optimization, the system actually does not compute the internal angles, but instead the cosines, where a cosine of $0.70710678118$ or larger corresponds to such an angle.
+In order to compute the internal angles of an object, I simply do pairwise comparisons between any two strokes that meet in a common point.
+With the first iteration of this algorithm simply walking along the outline of an object to find these pairs, I quickly encountered a bug that caused many arrow heads to not be detected.
+The fix lied in the interesting observation, that some objects are actually drawn in a way where they close the loop through walking along the perimeter, and then close the loop again by connecting the first and last endpoint of the object's path.
+Since those are already identical, this resulted in many arrow heads having one line segment of length $0$, so that if two adjacent line segments form a tight angle, that pair would never be checked because along its perimeter, a line segment of lenght $0$ lies between the two segments.
+By fixing that bug, arrow head detection allowed correct detection of twelve additional instances, so instead of $210$ graphs, $222$ could be found.
+
+
+\subsubsection{Creating an incidence matrix}\label{sec:graph}
+With the set of vertices being determined, the next step would be checking which edges are incident to that vertex.
+Although most vertices lie on an endpoint of an edge segment, there are many instances where vertices lie between two endpoints, which led me to the following algorithm:
+First, divide the segment into many sample points (My results come from using 30 points), with the first and last being the two endpoints and the others being equally spaced along the segment.
+Secondly, check for each vertex if any sample points lie within its bounding box, scaled by some lenience factor (best results with $1.07$).
+The concrete implementation of the algorithm was RBush\footnote{https://github.com/mourner/rbush}.
+The result is an incidence list of edge segments for every vertex, that will then be used to split every segment so that no segment has a vertex lying between its two endpoints, and every edge segment knows if it is incident to a vertex at each of its endpoints.
+With an edge being a path from one vertex to another, there may be instances where multiple vertices are incident to a single endpoint.
+In such a case, I take the vertex minimizing the distance to the endpoint, which is a solution that seemingly has not caused any problems.
+
+
+After that, I use KDBush\footnote{https://github.com/mourner/kdbush} to find all orphaned edge endpoints incident to another orphaned edge endpoint, i.e.~a pair of incident endpoints that are both not incident to any vertex.
+While the search radius has caused some troubles since there are both instances where two strokes form one edge, yet they don't exactly meet in a given point, and instances where two separate edges come very close to each other at a given endpoint, 
+the best results could be achieved with the search radius being either the stroke width, or 0.25px, depending on which is larger, with very short segments not getting the guarantee of at least 0.25px.
+This allows chaining different segments together into one large edge, which is important for many instances: 
+in an earlier version where this was not possible, only 22 out of the 248 'A' graded graphs could be matched.
+After implementing the chaining of edge segments, the recall jumped up by 36\%, up to a total of 30 matched instances.
+
+
+
+Lastly, remaining half orphans are rescued by linearly extending them into the direction they point at. 
+For bezier curves, the extension goes into the direction obtained by shooting from the last control point towards the orphaned endpoint. 
+Since this implementation also caused many false positives, I had to carefully limit the extension, up to a maximum of nine pixels, or seven percent of the edge segment's length.
+
+
+The resulting incidence list can then be turned into a graph using depth-first-search, just like the old graph harvester did.
+
+\section{Limitations and possible solutions}
+\paragraph{Arrow Detection}\label{sec:arrows}
+The system currently relies on reusing arrows as edge segments.
+This causes many perfectly fine edges to attach the arrow's stroke segments to its end, rather than the vertex it is incident to.
+While that does not cause any problems in itself, it causes the last segment of the edge to be very short, thus extending that segment by seven percent achieves much less, than it could achieve if arrows were not reused as edge segments.
+However, in order to enable that, it would be interesting to analyze cases where an arrow is actually important for edge detection.
+Possible indicators could be size of the arrow, and number of vertices it is incident to. 
+For example, if the arrow consists of three line segments, there could be three vertices the arrow is incident to. 
+If there are more or less vertices in its vicinity, the arrow might be safe to discard as an edge.
+
+\paragraph{Large vertices}
+The implementation often bloats vertices up to be much larger than they appear to be in the original drawing, causing problems by finding additional incident edges and falsely merging two bloated vertices into one.
+It remains to be seen if this is due to a bug, or some other phenomenon that can be counteracted.
+
+\paragraph{Grids}
+It remains difficult to discern grids lying under a graph to grid graphs. 
+While a filter based on brightness or stroke style could help, there are still many instances that would break by taking these factors into consideration.
+For example, currently any drawn object with a luminance value of $0.95$ is discarded, with $1$ indicating a fully white object.
+Some instances, such as GD15\_243-256 Fig.~1 have a grid that can be filtered by setting the threshold to $0.87$, but that would, at the same time, falsely throw away a vertex displayed in GD20\_56-70 Fig.~5.
+
+\paragraph{Edge Extension}
+Many instances, such as GD09\_32-43 Fig.~2 feature edges that end far away from their incident vertices, yet increasing the extension threshold from 9px to a higher value would break many instances in return, such as GD09\_303-314 Fig.~1a).
+This seems to be a problem especially for short edge segments.
+A possible reason could be because in its current form, if a vertex has both an outline and an interior color, and one of them (usually the outline) is rejected, the strokes that make up that rejected object are still reconsidered as an edge candidate.
+If, by coincidence, an edge does not connect to the vertex directly, and instead connects to one such re-used outline strokes, there may be a situation where such a reused outline stroke ends up as a half-orphan.
+By extending the half-orphan in what is essentially a random direction, a compact graph drawing may falsely connect this half-orphan to another vertex, ruining the detection for that instance, even if this phenomenon occurs just once.
+Another interesting observation would thus be to include a filter especially made for vertices that are represented by two objects, and see if this allows the edge extension threshold to be chosen a bit more generously.
+
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+This last quote is to make the compiler happy\cite{akitaya2025slidingsquaresparallel}.
+\clearpage
+\bibliographystyle{mybabalpha-fl}
+\bibliography{mybib}
+
+
+\end{document}

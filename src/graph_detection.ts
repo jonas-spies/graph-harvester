@@ -10,7 +10,7 @@ const EDGE_EXTENSION_THRESHOLD = 9
 // The step size by which we extend orphaned edges
 const EDGE_EXTENSION_STEP_SIZE = 3
 // Filter vertices that take up at least that percentage of the drawing's bounding box
-const DRAWING_AREA_THRESHOLD = 0.2
+const DRAWING_AREA_THRESHOLD = 0.05
 // Determines by what percentage vertices of the same cluster may be apart in size
 const GROUP_VERTEX_THRESHOLD = 0.3
 const MIN_CLUSTER_SIZE = 3 // super important parameter apparently
