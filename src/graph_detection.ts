@@ -5,6 +5,8 @@ import * as utils from "./geometry_utils.js"
 const VERTEX_HEIGHT_WIDTH_RATIO_THRESHOLD = 0.75
 // Only consider edges connected to a vertex, if the edge overlaps the vertices bounding box, scaled by this
 const VERTEX_EDGE_DISTANCE_THRESHOLD = 1.07 // best results between 106% and 109% 
+// Only extend an edge by that percentage
+const RELATIVE_EDGE_EXTENSION_THRESHOLD = 1.175
 // Try extending orphans by this many pixels and see if there are any incident vertices now
 const EDGE_EXTENSION_THRESHOLD = 9
 // The step size by which we extend orphaned edges
@@ -270,7 +272,7 @@ export function detect_graphs_from_drawing(drawing : Drawing, logs? : string[]):
     vertex_candidates = utils.merge_overlapping_vertices(vertex_candidates)
     let graph = utils.vertices_within_distance_of_edge(VERTEX_EDGE_DISTANCE_THRESHOLD, edge_candidates, vertex_candidates)
     utils.edges_incident_to_edges(edge_candidates, graph, implied_vertices)
-    utils.extend_orphaned_edges(graph, VERTEX_EDGE_DISTANCE_THRESHOLD, EDGE_EXTENSION_THRESHOLD, EDGE_EXTENSION_STEP_SIZE, edge_candidates, vertex_candidates)
+    utils.extend_orphaned_edges(graph, RELATIVE_EDGE_EXTENSION_THRESHOLD, EDGE_EXTENSION_THRESHOLD, EDGE_EXTENSION_STEP_SIZE, edge_candidates, vertex_candidates)
     let {new_graph, new_edges} = utils.split_edges_with_middle_vertex(graph, edge_candidates)
     graph = new_graph
     edge_candidates = new_edges

@@ -435,7 +435,7 @@ export function vertices_within_distance_of_edge(distance_threshold: number, edg
                     edge.end_incident = v
                     incident_edges.push(edge)
                     break
-                default: // TODO: only the vertices will know of the edges, not vice versa.
+                default:
                     incident_edges.push(edge)
                     break
             }
@@ -457,8 +457,7 @@ export function vertex_contains_point(vertex: Path_Metadata, points: Point[]){
 
 /**Determines for each edge how many vertices lie between its two endpoints, approximates its coordinates on the line using STROKE_APPROXIMATION_RESOLUTION, and splits each edge along these points.
  * Then returns a new map and edge list based on the new edges, without modifying the input objects.
- * @warning the new map currently throws away isolated vertices and full orphans
- * @TODO make it so rescued full orphans at least make it into the new_edges list*/
+ * @warning the new map currently throws away isolated vertices and full orphans */
 export function split_edges_with_middle_vertex(graph: Map<Path_Metadata, Stroke[]>, edges: Stroke[], logs? : string[]): {new_graph: Map<Path_Metadata, Stroke[]>, new_edges: Stroke[]} {
     /**Auxiliary function which adds an edge to the list of incident edges of a given vertex, while ensuring the vertex and its list are registered in the map*/
     function add_to_graph_map(graph: Map<Path_Metadata, Stroke[]>, vertex: Path_Metadata, edge: Stroke){
@@ -642,8 +641,8 @@ export function points_equal(p1: Point, p2: Point): boolean{
 }
 
 /** Checks for each edge if it is an orphan or half orphan, then checks if any endpoints of another edge lie within range.s
- * If exactly one edge is incident, this will become its neighbor. If two or more edges are incident, this will be interpreted as an implied vertex.
- * @TODO make it more robust in cases where a neighboring edge is actually already incident to a vertex or edge at that endpoint (currently would drop that incidence) */
+ * If exactly one edge is incident, this will become its neighbor. If two or more edges are incident, the top candidate will be determined heuristically, or it will be interpreted as an implied vertex if the respective flag is set. 
+ * @warning while it does not drop already incident vertices, it does make segments snatch away the connected segment from each other. A possible solution would be ranking the current connection against the one we just found in each step*/
 export function edges_incident_to_edges(edges: Stroke[], graph: Map<Path_Metadata, Stroke[]>, implied_vertices: boolean, logs? : string[]){ // TODO? filter based on StrokeStyle for the most likely candidate
     function link_edges(e1: Stroke, s1: boolean, e2: Stroke, s2: boolean){ // Auxiliary function
         if (s1){
@@ -697,8 +696,15 @@ export function edges_incident_to_edges(edges: Stroke[], graph: Map<Path_Metadat
         var indices = tree.within(point.x, point.y, search_radius)
         logs?.push("Found "+indices.length + " initial hits \n")
 
+        //@warning this would be the function call to modify if one was to implement the suggestion.
         indices = indices.filter( (value, key) => { // FILTER: 1) endpoints that are not orphaned. 2) endpoints that are incident to their other end.
             if (value == i || value == i + n || value == i - n) // Self hit
+                return false
+            const other_start = (value < n)
+            const other_edge = other_start? edges[value]! : edges[value - n]!
+            if (other_start && other_edge.start_incident instanceof Path_Metadata)
+                return false
+            else if(!other_start && other_edge.end_incident instanceof Path_Metadata)
                 return false
             for (var j = 0; j < indices.length; j++){
                 if (j == key)
