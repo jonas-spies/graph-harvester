@@ -179,7 +179,7 @@ export class Graph{
             return result.join("")
         }
         let adj = this.toAdjacencyMatrix()
-        const n = adj.length
+        const n = this.vertices.length
         var result: string = ""
         if (n < 63)
             result += String.fromCharCode(n+63)
@@ -193,8 +193,8 @@ export class Graph{
         }
         const body_bits: number[] = []
         // Get all bits
-        for (let i = 0; i <n; i++){
-            for (let j = i+1; j <n; j++){
+        for (let j = 1; j < n; j++) {
+            for (let i = 0; i < j; i++) {
                 body_bits.push(adj[i]![j]!)
             }
         }
