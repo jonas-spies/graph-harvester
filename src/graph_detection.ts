@@ -5,8 +5,6 @@ import * as utils from "./geometry_utils.js"
 const VERTEX_HEIGHT_WIDTH_RATIO_THRESHOLD = 0.75
 // Only consider edges connected to a vertex, if the edge overlaps the vertices bounding box, scaled by this
 const VERTEX_EDGE_DISTANCE_THRESHOLD = 1.07 // best results between 106% and 109% 
-// Only extend an edge by that percentage
-const RELATIVE_EDGE_EXTENSION_THRESHOLD = 1.175
 // Try extending orphans by this many pixels and see if there are any incident vertices now
 const EDGE_EXTENSION_THRESHOLD = 9
 // The step size by which we extend orphaned edges
@@ -21,7 +19,7 @@ const LUMINANCE_THRESHOLD = 0.95 // 0.87 seems to be a threshold for 20_56 and 1
 const ALPHA_THRESHOLD = 0.1
 
 // Indicators to activate / deactivate filters by certain parameters
-const HEIGHT_WIDTH = true //(TODO: only activate this filter if some vertices remain after)
+const HEIGHT_WIDTH = true //(Idea: only activate this filter if some vertices remain after)
 
 /** Uses various checks to turn all vertex candidates that fail one of them into edge candidates
  * @CHECK Vertices must be somewhat shaped like a square (height / width ratio)
@@ -53,9 +51,8 @@ function filter_vertices(vertex_candidates: Path_Metadata[], edge_candidates: St
             if (vertex.alpha <= ALPHA_THRESHOLD || utils.is_brighter_than(vertex, LUMINANCE_THRESHOLD)){
                 logs?.push("Filtering vertex:\n"+ vertex + "\n Alpha: " +vertex.alpha + " Color: "+ vertex.colorSpace.getType() + ", " +vertex.color)
                 is_good = false
-                full_reject = true //TODO does not fully exclude such edges, since some objects never become a vertex candidate, so this should be part of the break_paths_into_stroke()
+                full_reject = true //does not fully exclude such edges, since some objects never become a vertex candidate, but break_paths_into_stroke() does the same check for all objects => this line of code should never trigger.
         }
-
 
         // Code that actually does something with the flag
         if (is_good)
@@ -66,8 +63,8 @@ function filter_vertices(vertex_candidates: Path_Metadata[], edge_candidates: St
 }
 
 
-/** Groups the vertex candidates by size into different clusters, then performs different checks to filter.
- * Will change the parameter 'edge_candidates' accordingly and return a new list of filtered vertex_candidatess*/
+/** Groups the vertex candidates by size into different clusters, then performs different checks to filter. This function uses recursion until convergence, which happens usually after 2-3 executions.
+ * Adds the rejected vertex candidates to 'edge_candidates' and returns a new list of filtered vertex_candidates*/
 function filter_vertices_by_area(vertex_candidates: Path_Metadata[], edge_candidates: Stroke[], logs?: string[]){
     const clusters: Path_Metadata[][] = []
     const accepted_vertices: Path_Metadata[] = []
@@ -171,7 +168,7 @@ function filter_vertices_by_area(vertex_candidates: Path_Metadata[], edge_candid
 
 
 /** Given a map that links each vertex to a list of incident edges, where each edge has a pointer to whatever its start or endpoint is icndient to, performs DFS to find each connected component and turn it into a graph.
- * Rejects graphs with less than 5 vertices and less than 4 edges*/
+ * Rejects graphs with less than 5 vertices and less than 4 edges - these thresholds can be changed in wrappers.ts/Graph */
 function build_graphs_from_map(map: Map<Path_Metadata, Stroke[]>, logs?: string[]): Graph[]{
     const visited : Set<Path_Metadata | Stroke> = new Set<Path_Metadata | Stroke>()
     const graphs : Graph[] = []
@@ -223,29 +220,6 @@ function build_graphs_from_map(map: Map<Path_Metadata, Stroke[]>, logs?: string[
 }
 
 
-// Probably too dangerous because it produces many very short segments that might all be incident to one vertex
-/*function approximate_curves_as_straight_line_segments(edges: Stroke[]){
-    let n = edges.length
-    for (var i = 0; i < n; i++){
-        let edge = edges.shift()!
-        if (edge.type == "line"){ // Already straight line
-            edges.push(edge)
-            continue
-        }
-        let increment = 1 / BEZIER_APPROXIMATION_RESOLUTION
-        let last = edge.start
-        var t = increment
-        while (t < (1 - increment)){ // ensures that the last segment is at least increment long
-            let point = utils.walk_along_edge(edge, t)
-            edges.push(new Stroke("line", edge.stroke, [last, point]))
-            last = point
-            t += increment
-        }
-        edges.push(new Stroke("line", edge.stroke, [last, edge.end]))
-    }
-}*/
-
-
 /**The access point to graph detection. Takes a drawing and tries to extract a list of graphs from it. */
 export function detect_graphs_from_drawing(drawing : Drawing, logs? : string[]): Graph[]{
     logs?.push("Called Detect Graphs from Drawing...")
@@ -272,7 +246,7 @@ export function detect_graphs_from_drawing(drawing : Drawing, logs? : string[]):
     vertex_candidates = utils.merge_overlapping_vertices(vertex_candidates)
     let graph = utils.vertices_within_distance_of_edge(VERTEX_EDGE_DISTANCE_THRESHOLD, edge_candidates, vertex_candidates)
     utils.edges_incident_to_edges(edge_candidates, graph, implied_vertices)
-    utils.extend_orphaned_edges(graph, RELATIVE_EDGE_EXTENSION_THRESHOLD, EDGE_EXTENSION_THRESHOLD, EDGE_EXTENSION_STEP_SIZE, edge_candidates, vertex_candidates)
+    utils.extend_orphaned_edges(graph, VERTEX_EDGE_DISTANCE_THRESHOLD, EDGE_EXTENSION_THRESHOLD, EDGE_EXTENSION_STEP_SIZE, edge_candidates, vertex_candidates)
     let {new_graph, new_edges} = utils.split_edges_with_middle_vertex(graph, edge_candidates)
     graph = new_graph
     edge_candidates = new_edges

@@ -53,21 +53,21 @@ export function group_paths_by_bb(paths: Path_Metadata[]): Drawing[]{
 }
 
 
-/** Exports a drawing to PNG, scaled by a factor of 5 for higher resolution. Filled objects are drawn in red while Stroke objects are drawn in black 
+/** Exports a drawing to PNG, scaled by a factor of 5 for higher resolution - only used for benchmarks and debugging purposes.
 @input name includes the directory (starting in the root of the project) and ends with the desired name of the file. ".PNG" is not required. */
 export function export_drawing(drawing: Drawing, name: string){     
     fs.writeFileSync(name+".png", drawing.toPNG())
 }
 
 
-/** Exports a graph as .gv.
+/** Exports a graph as .gv - only used for benchmarks and debugging purposes.
 @name: includes the directory starting from the root folder of the project up until the desired name of the file, but does not need ".gv" specified.*/
 export function exportGraph(graph: Graph, name: string){
     fs.writeFileSync(name+".gv", graph.toString())
 }
 
 
-/** Exports a graph objects as an adjacency list in .txt format.
+/** Exports a graph object as an adjacency list in .txt format - only used for benchmarks and debugging purposes.
 @name: includes the directory starting from the root folder of the project up until the desired name of the file, but does not need ".txt" specified.*/
 export function exportGraphAsAdjacency(graph: Graph, name: string){
     let adjacency = graph.toAdjacencyMatrix()

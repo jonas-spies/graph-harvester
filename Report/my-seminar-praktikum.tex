@@ -90,20 +90,20 @@ In this segment I will give a short overview over how the previous harvester wor
 \subsection{Workflow}
 The old implementation handles one document at a time, going through that document page by page.
 
-\paragraph{Identifying figures}
+\paragraph{Identifying Figures}
 As a first step on each page, the old pipeline groups drawn objects by figure, so that a matching between figure and extracted graph can be established while further narrowing the number of objects to be considered at a given time.
 This is achieved by a simple algorithm where each drawn object on a page starts off as its own figure. 
 If two figures have overlapping bounding boxes, they are merged to a single figure containing the drawn objects of both. 
 By repetition until convergence, this approach works surprisingly well to correctly identify each figure as such, which usually even gets reassigned its original figure number through another simple search.
 This speeds up manual evaluation because each graph produced by the harvester can that way be traced back to a unique figure in the paper.
 
-\paragraph{Initial vertex and edge candidates}
+\paragraph{Initial Vertex and Edge Candidates}
 Iterating figure by figure, the system tries to construct circles from Bézier curves, so that initially, all rectangles and circles are a vertex candidate and remaining objects are edge candidates.
 An initial filter clusters the vertices by size, then ensures for larger than average vertices that they do not contain any already accepted vertices and that they have some edge candidate starting inside.
 Any vertices that do not pass this filter will from this point on be treated as a group of potential edges. 
 After that, duplicate vertices are thrown away completely, which is important because any drawn objects with both a fill color and an outline will appear twice.
 
-\paragraph{Graph detection}
+\paragraph{Graph Detection}
 From there, it looks for any edge candidates starting or ending in a vertex candidate and connects pairs of segments to an edge path, if they share an endpoint and their internal angle is at least 60°.
 If both the start and endpoint of a segment are incident to a vertex, that segment is an \emph{edge}.
 If only one endpoint is incident to a vertex, it is called a \emph{half-orphan}.
@@ -191,14 +191,14 @@ Any object not selected as a vertex would then be broken down into its separate 
 Rejected arrows are currently reused as edge candidates because the current detection is too broad, so that throwing them away would cause problems for many graph drawings.
 A potential solution for this is briefly discussed in \cref{sec:arrows}.
 
-\subsubsection{Additional filters}
+\subsubsection{Additional Filters}
 While the selection of vertex candidates was deliberately lax initially, it became clear that further filtering the selection of vertex candidates was key to improving performance:
 an earlier version without any of the following filters only found 30 `A' graded graphs, as opposed to the current version which found 222.
 One filter that misses from the old model, however, is that of checking for duplicate vertices.
 While there are many other filters in place that handle duplicate vertices, the absence of this filter is actually a prime candidate for the explanation as to why sometimes vertices seemingly blow up in size compared to the original drawing, as discussed in~\cref{sec:large}
 Anybody who wants to experiment with these filters themselves can find relevant parameters in the file ``graph\_detection.ts'', with some additional parameters in the file ``geometry\_utils.ts''.
 
-\paragraph{Merging overlapping vertices}
+\paragraph{Merging Overlapping Vertices}
 Due to the nature of how vector graphics are drawn, most vertices actually produce two objects: one for the outline and one for the interior color.
 If both survive the initial selection process, it becomes essentially random which of the two objects is selected to become linked to an edge, due to an edge only being able to store one vertex per endpoint.
 This would cause problems during the last step discussed in \cref{sec:graph}, so that many vertices would be split into two and some components of a graph may end up missing entirely.
@@ -211,7 +211,7 @@ Still, instances like the one shown in~\cref{fig:ambiguous}, where there are two
     \caption{Taken from \cite{hurtado2016coloredspanninggraphsset}.}
     \label{fig:ambiguous}
 \end{figure}
-\paragraph{Clustering vertices by area}
+\paragraph{Clustering Vertices by Area}
 Largely copied from the old graph harvester, this filter first clusters vertices by the size of the area they take up, then splits each cluster into two groups: the accepted group, and the group up for further examination.
 If a cluster contains too few elements, or if its mean area is larger than the average over the remaining clusters, it would be sent to further examination, while other clusters would be accepted.
 A cluster up for further examination then needs to ensure that it does not contain any center point from the set of already accepted vertices.
@@ -229,7 +229,7 @@ I eventually optimized the parameter so that any vertex that has less than 75\% 
 While this initially gave a small boost in recall, recent tests have shown no difference.
 A further optimization could be to only use the filter, if some vertices still remain after, but in its current form, the impact of the filter seems to be weak.
 
-\paragraph{Size of vertex compared to total size of figure}
+\paragraph{Size of Vertex Compared to Total Size of Figure}
 While simply filtering vertices if their area is too large relative to that of the figure seems like a good idea, in practice other filters already seem to do this job.
 As a result, no difference in recall could be observed when changing the threshold for this variable within reasonable bounds. 
 For example, filtering any vertex that takes up 20\% or more of the total area, compared to already filtering it if it takes up 5\% of the total area, does not change recall at all, and setting the threshold too low naturally hurts recall, rather than helping it.
@@ -337,7 +337,7 @@ Although there were two instances that could only be detected with at least thre
 
 The resulting incidence list can then be turned into a graph using depth-first-search, just like the old graph harvester did.
 
-\section{Limitations and possible solutions}
+\section{Limitations and Possible Solutions}
 \paragraph{Arrow Head Detection}\label{sec:arrows}
 The system currently relies on reusing arrow heads as edge segments.
 This causes many perfectly fine edges to attach the arrow's stroke segments to its end, rather than the vertex it is incident to.
@@ -350,7 +350,7 @@ Possible indicators could be size of the arrow, and number of vertices it is inc
 For example, if the arrow consists of three line segments, there could be three vertices the arrow is incident to. 
 If there are more or less vertices in its vicinity, the arrow might be safe to discard as an edge.
 
-\paragraph{Large vertices}\label{sec:large}
+\paragraph{Large Vertices}\label{sec:large}
 The implementation often bloats vertices up to be much larger than they appear to be in the original drawing, causing problems by finding additional incident edges and falsely merging two bloated vertices into one.
 It remains to be seen if this is due to a bug, or some other phenomenon that can be counteracted.
 A plausible explanation could be, that some papers might draw their vertices with a blown up interior that they then clip to the outline of the vertice.

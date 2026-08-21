@@ -12,6 +12,7 @@ const MINIMUM_SEARCH_RADIUS = 0.25 // 0.25 seems best
 const MINIMUM_EDGE_LENGTH = 10 // does not forbid shorter edges, only denies short edges a bigger search radius to reduce false positives
 // Rejects any object as vertex candidate, if it contains too many bezier curves. Optimal Range in [8-17]
 const MAX_CURVES_PER_VERTEX = 8
+// If two edges are incident to the same edge endpoint, enables a ranking function to determine which one to take.
 const MATCH_MULTIPLE_EDGES = true
 
 /**Merges drawings by overlapping bounding boxes
@@ -173,7 +174,7 @@ function detect_arrow_head(first_stroke: Stroke, second_stroke: Stroke, logs?: s
     return cosine >= 0.70710678118 // 0.70710678118 = cos(45°). Higher means tighter angle
 }*/
 
-/** Takes a path object and returns a list of all its strokes, as well as a boolean indicating if the path formed a closed loop
+/** Takes a path object and returns a list of all its strokes, as well as some useful information to determine how to proceed with the object.
 @warning if there is even just a fraction of a pixel between the start and endpoint, it won't be considered a closed loop */
 export function break_path_into_strokes(path: Path_Metadata, luminance_threshold: number, logs?: string[]): {strokes: Stroke[], full_reject: boolean, is_vertex_candidate: boolean, shape: "circle" | "rectangle" | "path"} {
     const is_fill = path.type == "fill"
@@ -297,7 +298,7 @@ function euclidean_distance(p1: Point, p2: Point){
 }
 
 /**
- * 
+ * Checks for half-orphans and tries extending their length to find an incidence for the respective endpoint.
  * @param graph: is modified to contain newly found adjacencies
  * @param distance_threshold: similar to vertices_within_distance_of_edge(), this acts as a search radius around each vertex
  * @param maximum_extension: this describes the maximum number of pixels an edge is allowed to be extended by
@@ -445,7 +446,8 @@ export function vertices_within_distance_of_edge(distance_threshold: number, edg
     return map
 }
 
-
+/** Checks if the point lies within the bounding box of the vertex
+ * @warning Only considers the bounding box, not the exact shape of the vertex */
 export function vertex_contains_point(vertex: Path_Metadata, points: Point[]){
     const tree = new KDBush(points.length)
     for (const point of points)
@@ -455,9 +457,9 @@ export function vertex_contains_point(vertex: Path_Metadata, points: Point[]){
 }
 
 
-/**Determines for each edge how many vertices lie between its two endpoints, approximates its coordinates on the line using STROKE_APPROXIMATION_RESOLUTION, and splits each edge along these points.
+/**Determines for each edge how many vertices lie between its two endpoints, approximates its coordinates on the line using STROKE_APPROXIMATION_RESOLUTION and splits each edge along these points.
  * Then returns a new map and edge list based on the new edges, without modifying the input objects.
- * @warning the new map currently throws away isolated vertices and full orphans */
+ * @warning the new map throws away isolated vertices and full orphans */
 export function split_edges_with_middle_vertex(graph: Map<Path_Metadata, Stroke[]>, edges: Stroke[], logs? : string[]): {new_graph: Map<Path_Metadata, Stroke[]>, new_edges: Stroke[]} {
     /**Auxiliary function which adds an edge to the list of incident edges of a given vertex, while ensuring the vertex and its list are registered in the map*/
     function add_to_graph_map(graph: Map<Path_Metadata, Stroke[]>, vertex: Path_Metadata, edge: Stroke){
@@ -602,7 +604,7 @@ export function split_edges_with_middle_vertex(graph: Map<Path_Metadata, Stroke[
 
 
 /**Returns a similarity score between 0 (completely different) and 5 (identical) */
-function stroke_similarity(a: mupdf.StrokeState, b: mupdf.StrokeState){ //TODO compares two StrokeStyles and gives a similarity score in the end
+function stroke_similarity(a: mupdf.StrokeState, b: mupdf.StrokeState){
     let score = 0
     if (a.getLineWidth === b.getLineWidth)
         score += 1
@@ -636,14 +638,15 @@ export function mean(values: number[]): number {
     return sum / values.length
 }
 
+/** Checks if two points are equal */
 export function points_equal(p1: Point, p2: Point): boolean{
     return (p1.x === p2.x) && (p1.y === p2.y)
 }
 
 /** Checks for each edge if it is an orphan or half orphan, then checks if any endpoints of another edge lie within range.s
  * If exactly one edge is incident, this will become its neighbor. If two or more edges are incident, the top candidate will be determined heuristically, or it will be interpreted as an implied vertex if the respective flag is set. 
- * @warning while it does not drop already incident vertices, it does make segments snatch away the connected segment from each other. A possible solution would be ranking the current connection against the one we just found in each step*/
-export function edges_incident_to_edges(edges: Stroke[], graph: Map<Path_Metadata, Stroke[]>, implied_vertices: boolean, logs? : string[]){ // TODO? filter based on StrokeStyle for the most likely candidate
+ * @warning while it does not drop already incident vertices, it does make segments snatch away the connected segment from each other. A possible solution would be ranking the current connection against the one we just found in each step. Search for a comment with '@warning' to find the relevant place in the code*/
+export function edges_incident_to_edges(edges: Stroke[], graph: Map<Path_Metadata, Stroke[]>, implied_vertices: boolean, logs? : string[]){
     function link_edges(e1: Stroke, s1: boolean, e2: Stroke, s2: boolean){ // Auxiliary function
         if (s1){
             e1.start_incident = e2
@@ -748,7 +751,7 @@ export function edges_incident_to_edges(edges: Stroke[], graph: Map<Path_Metadat
                     let index = indices[0]!
                     const other_start = (index < n)
                     const other_edge = other_start? (edges[index]!) : (edges[index - n]!)
-                    //TODO: maybe infer a vertex if StrokeStyle differs too much
+                    // suggestion: maybe infer a vertex if StrokeStyle differs too much
                     link_edges(edge, start, other_edge, other_start)
                     break
                 }

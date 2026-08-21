@@ -4,7 +4,7 @@ import {detect_graphs_from_drawing} from "./graph_detection.js"
 import * as pdf_extraction from "./pdf_extraction.js"
 import { Graph, type DetectedGraph } from './wrappers.js'
 
-
+/** Used for debugging purposes to target one specific file without using the frontend */
 export function execute(){
     var logs: string[] = ["Logs of the most recent iteration\n"]
     let doc = mupdf.PDFDocument.openDocument(fs.readFileSync("test_files/test.pdf"))
@@ -31,7 +31,7 @@ export function execute(){
     return graphs
 }
 
-
+/** This is the gateway to the pipeline */
 export function execute_file(file: string | ArrayBuffer | mupdf.Buffer | Uint8Array<ArrayBufferLike> | mupdf.Stream, params:{hog: boolean, logs?: string[], to_png? :string}){
     let doc = mupdf.PDFDocument.openDocument(file)
     let detected_graphs: DetectedGraph[] = []

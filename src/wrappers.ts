@@ -11,6 +11,7 @@ export const default_stroke = new mupdf.StrokeState({
                     })
 
 
+/**A high level implementation of a graph edge. */
 export class Edge{
     v1: Vertex
     v2: Vertex
@@ -28,6 +29,7 @@ export class Edge{
 }
 
 
+/** A high level implementation of a graph vertex. */
 export class Vertex{
     pos: Point
     id: number
@@ -44,6 +46,7 @@ export class Vertex{
 }
 
 
+/** A high level implementation of a graph. */
 export class Graph{
     edges: Edge []
     private map: Map<Path_Metadata, number>
@@ -51,7 +54,7 @@ export class Graph{
     private smallest_free_id: number
     private used_ids: Set<number>
     metadata: string[]
-    // Minimum size a Graph needs to be in order to not be rejected (last model used 4 Edges, 5 Vertices)s
+    // Minimum size a Graph needs to be in order to not be rejected (last model used 4 Edges, 5 Vertices)
     static readonly MINIMUM_EDGES = 4
     static readonly MINIMUM_VERTICES = 5
 
@@ -85,7 +88,7 @@ export class Graph{
     }
 
     /** Checks if an equivalent vertex already exists and only adds the vertex if the answer is no.
-    @returns the ID of the vertex or -1 if the specified ID is already in use */
+    @returns the ID of the vertex or -1 if the specified ID is already in use for a different vertex */
     putVertex(vertex: Path_Metadata | Vertex ): number{
         if (vertex instanceof Path_Metadata){
             let existing = this.map.get(vertex)
@@ -136,7 +139,7 @@ export class Graph{
         if (edge.v1_id == edge.v2_id) // Self Loop
             return
         let v1 = this.vertices.find(x => x.id == edge.v1_id)
-        let v2 = this.vertices.find(x => x.id == edge.v2_id) // TODO a bit inefficient
+        let v2 = this.vertices.find(x => x.id == edge.v2_id) // a bit inefficient
         if(this.edges.some(x => {return (x.v1.id == edge.v1_id && x.v2.id == edge.v2_id) || (x.v1.id == edge.v2_id && x.v2.id == edge.v1_id)})) // equivalent edge already registered
            return
         if (v1 && v2)
@@ -145,7 +148,7 @@ export class Graph{
     }
 
 
-    /** Returns a n x n matrix whereas n is the number of vertices in the graph. A 1 entry in i,j implies an edge between vertex i and vertex j (IDs sorted in increasing order) */
+    /** Returns an n x n matrix whereas n is the number of vertices in the graph. A 1 entry in i,j implies an edge between vertex i and vertex j (IDs sorted in increasing order) */
     toAdjacencyMatrix(): number[][]{
         let sorted_vertices = [... this.vertices].sort((a,b) => a.id - b.id)
         const n = this.vertices.length
@@ -162,6 +165,7 @@ export class Graph{
     }
 
 
+    /** Returns a Graph6 representation of the Graph */
     toGraph6(): string{
         function encode_bits(bits:  number[]): string{
             let result: string[] = []
@@ -203,7 +207,7 @@ export class Graph{
     }
 
 
-    /** Returns true if the Graph has at least theshold many edges */
+    /** Returns true if the Graph has at least threshold many edges */
     hasEdges(threshold: number = 1){
         if (this.edges.length < threshold)
             return false
@@ -211,7 +215,7 @@ export class Graph{
     }
 
 
-    /** Returns true if the Graph has at least theshold many vertices */
+    /** Returns true if the Graph has at least threshold many vertices */
     hasVertices(threshold: number = 1){
         if(this.vertices.length < threshold)
             return false
@@ -219,7 +223,7 @@ export class Graph{
     }
 
     
-    /** Performs DFS find all connected components and returns a list containing a graph for each connected component.*/
+    /** Performs DFS to find all connected components and returns a list containing a graph for each connected component.*/
     split_disconnected_components(): Graph[]{
         const visited : Set<Vertex | Edge> = new Set<Vertex | Edge>()
         const graphs : Graph[] = []
@@ -275,6 +279,7 @@ export class Graph{
     }
 
 
+    /** Sends a request to house of graphs to get the Graph's ID in their database */
     async get_hog_id(){
         const url = "https://houseofgraphs.org/api/enquiry"
         const graph6 = this.toGraph6()
@@ -312,6 +317,7 @@ export class Graph{
     }
 
 
+    /** A detected graph is the interface used to communicate with the frontend. It contains a list of graphs (including HoG ID) and a list of objects the graphs consist of. */
     static toDetectedGraph(graphs: Graph[], drawing: Drawing, hog: boolean){
         const n = graphs.length
         const img : string = utils.pngBytesToBase64(drawing.toPNG(2))
@@ -323,7 +329,7 @@ export class Graph{
         const rects: Rectangle[][]=  []  
         const lines: Line[] = []
         const beziers: Bezier[] = []
-        const hog_ids: number[] = [] // TODO: make a function that asks HOG
+        const hog_ids: number[] = []
         for (const graph of graphs){
             graph6_strings.push(graph.toGraph6())
             let hog_id = 0
@@ -358,7 +364,7 @@ export class Graph{
     }
 }
 
-/** Currently used for edge candidates */
+/** Currently used for edge candidates*/
 export class Stroke{
     type: "line" | "curve"
     stroke: mupdf.StrokeState
@@ -369,6 +375,7 @@ export class Stroke{
     start_incident?: (Stroke | Path_Metadata)
     end_incident?: (Stroke | Path_Metadata)
     
+    // Describes how long the stroke needs to be, relative to how long it will be extended. A value of 3 means that the stroke can only be extended by 1/3 its original length.
     static readonly EXTENSION_MAXIMUM = 3 // 3 seems best
 
     constructor(type: "line" | "curve", stroke: mupdf.StrokeState, points: Point[]){
@@ -435,9 +442,10 @@ export class Stroke{
     }
 
 
-    /** Interprets the Stroke as a trajectory function f(t) where f(0) is the start point and f(1) is the end point. Given t, it returns the corresponding point on the Stroke */
+    /** Interprets the Stroke as a trajectory function f(t) where f(0) is the start point and f(1) is the end point. Given t, it returns the corresponding point on the Stroke 
+     * @param t must be between 0 and 1. */
     walk_along_edge(t: number): Point {
-        if (t > 1 || t < 0) // Will probably remove this check because it seems like an easy way to ''extend'' the line in a certain direction
+        if (t > 1 || t < 0) 
             throw new Error("Illegal argument for t")
         if (this.type == "line"){
             let x = this.start.x * (1-t) + this.end.x * (t)
@@ -522,12 +530,16 @@ export class Stroke{
         return {x: this.start.x + distance * dx / len, y: this.start.y + distance * dy / len}
     }
 
+
+    /** Applies pythagoras theorem to obtain the length of the stroke. However, the final sqrt is not taken, thus the returned value is the squared length.*/
     length_squared(): number{
         const dx = this.end.x - this.start.x
         const dy = this.end.y - this.start.y
         return (dx * dx) + (dy * dy)
     }
 
+
+    /** Given a bezier curve and a relative point on the curve, splits the curve into a left and right curve in the point, so that the two curves put together look exactly like the old curve. */
     static sub_curve_from_bezier(curve: Stroke, split_t: number): {left: Stroke, right: Stroke}{
         if (curve.type != "curve")
             throw new Error("Trying to split a curve that is actually a straight line")
@@ -751,7 +763,13 @@ export class Drawing{
     }
 }
 
-//COPY PASTED FROM FRONTEND + keeps a Graph object for every connected component
+
+export interface Point{
+    x : number
+    y : number
+}
+
+/** The following interfaces serve to communicate with the frontend */
 export interface DetectedGraph {
   graph6_strings: string[]
   circles: Circle[][]   
@@ -761,7 +779,7 @@ export interface DetectedGraph {
   boundingBox: readonly [number, number, number, number] 
   caption: string // (currently using empty string)
   img: string
-  hog_ids: number[] // TODO: make a function that asks HOG
+  hog_ids: number[]
   connected_components: Graph[]
 }
 
@@ -794,7 +812,4 @@ export interface Bezier {
 }
 
 
-export interface Point{
-    x : number
-    y : number
-}
+
